@@ -1,0 +1,62 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    environment: npm
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Verify release version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+          const tag = process.env.RELEASE_TAG;
+
+          if (!/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(tag ?? "")) {
+            throw new Error("Release tag must be a stable version such as v0.1.0");
+          }
+
+          if (tag !== `v${pkg.version}`) {
+            throw new Error(`Version mismatch: package.json=${pkg.version}, release=${tag}`);
+          }
+
+          if (lock.version !== pkg.version || lock.packages?.[""]?.version !== pkg.version) {
+            throw new Error("package-lock.json must match package.json");
+          }
+          NODE
+
+      - run: npm ci
+      - run: npm run check
+      - run: npm publish --access public
