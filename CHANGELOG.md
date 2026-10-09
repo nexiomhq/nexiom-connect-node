@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.2.0 — Unreleased
+## 0.2.1 — Unreleased
+
+- First npm release of the 0.2.0 changes below. Releases are now staged on npm and approved by a maintainer with 2FA.
+
+## 0.2.0 — Not published
+
+Tagged, but never published to npm. Install 0.2.1 instead.
+
 
 - Add `scheduledAt` to `emails.send` (a `Date` or ISO 8601 timestamp); `SendEmailResponse` now includes `scheduledAt`.
 - Add `emails.cancel(messageId)` and `emails.reschedule(messageId, { scheduledAt })` for scheduled sends. Cancel retries automatically because canceling twice is safe.
