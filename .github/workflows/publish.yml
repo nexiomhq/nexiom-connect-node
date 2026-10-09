@@ -59,4 +59,24 @@ jobs:
 
       - run: npm ci
       - run: npm run check
-      - run: npm publish --access public
+      # Staged, not published: a maintainer approves the version with 2FA before it goes live.
+      # The trusted publisher on npmjs.com allows only `npm stage publish`.
+      - name: Stage the release on npm
+        run: npm stage publish --access public --provenance
+
+      - name: Explain how to approve
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          {
+            echo "## @nexiom/connect ${RELEASE_TAG#v} is staged, not published"
+            echo
+            echo "A maintainer must approve it with 2FA before it goes live:"
+            echo
+            echo '```sh'
+            echo "npm stage list @nexiom/connect"
+            echo "npm stage approve <stage-id>"
+            echo '```'
+            echo
+            echo "Or approve it on npmjs.com. To discard it, run \`npm stage reject <stage-id>\`."
+          } >> "$GITHUB_STEP_SUMMARY"

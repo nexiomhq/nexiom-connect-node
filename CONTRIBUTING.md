@@ -182,11 +182,21 @@ After CI passes, create and publish a GitHub Release for that tag. The [Publish 
 1. Checks out the commit associated with the release.
 2. Verifies that the stable `vX.Y.Z` tag matches `package.json` and `package-lock.json`.
 3. Installs dependencies and runs all checks, including packed-package tests.
-4. Publishes the package to npm through the `npm` environment using trusted publishing.
+4. Stages the package on npm (`npm stage publish`) through the `npm` environment using trusted publishing.
 
-Publishing a stable GitHub Release triggers npm publication; pushing a commit or tag alone does not. Drafts and prereleases are not published to npm by this workflow. If an environment approval is configured, approve the deployment to continue.
+A staged version is not public until a maintainer approves it with 2FA, which the workflow cannot do. When the workflow finishes, its summary lists the commands:
 
-The npm package must already exist and its trusted publisher must be configured for this repository, `publish.yml`, and the `npm` environment. The first publication is a one-time maintainer setup. OIDC supplies authentication and provenance for subsequent releases; no `NPM_TOKEN` is needed.
+```sh
+npm stage list @nexiom/connect
+npm stage download <stage-id>   # optional: inspect the tarball first
+npm stage approve <stage-id>
+```
+
+You can also approve it on npmjs.com. `npm stage reject <stage-id>` discards a staged version so the same version can be staged again.
+
+Publishing a stable GitHub Release triggers npm staging; pushing a commit or tag alone does not. Drafts and prereleases are not published to npm by this workflow. If an environment approval is configured, approve the deployment to continue.
+
+The npm package must already exist and its trusted publisher must be configured for this repository, `publish.yml`, and the `npm` environment, with only staged publishing allowed (leave direct publishing unchecked). The first publication is a one-time maintainer setup. OIDC supplies authentication and provenance for subsequent releases; no `NPM_TOKEN` is needed.
 
 ## Troubleshooting
 
@@ -197,3 +207,6 @@ The npm package must already exist and its trusted publisher must be configured 
 | TypeScript consumer checks fail | Check the public exports and both ESM and CommonJS declaration files |
 | Publish rejects the release tag | Match `vX.Y.Z` to both version files in the tagged commit |
 | npm rejects an already published version | Prepare a new version; published versions cannot be overwritten |
+| Staging fails with `404 Not Found - PUT` | The trusted publisher is missing, mismatched, or expired on npmjs.com; recreate it, then re-run the failed job |
+| Staging fails because the version is already staged | Approve it, or reject it and re-run the workflow |
+| A re-run still runs an old workflow | A release runs the workflow from its tagged commit; move the tag to a commit with the updated workflow |
