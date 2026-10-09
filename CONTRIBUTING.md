@@ -43,14 +43,23 @@ src/
     validation.ts             # Shared argument validation
   services/
     emails/
-      emails.ts               # Email sending
+      emails.ts               # Email sending, scheduling, and logs
       types.ts                # Email request and response types
+      suppressions/
+        suppressions.ts       # Suppressed address listing
+        types.ts              # Suppression request and response types
     contacts/
       contacts.ts             # Contact CRUD and listing
       types.ts                # Contact request and response types
       properties/
         properties.ts         # Contact property management
         types.ts              # Property request and response types
+    templates/
+      templates.ts            # Template, variable, and version reads
+      types.ts                # Template request and response types
+    domains/
+      domains.ts              # Sending domain management and verification
+      types.ts                # Domain request and response types
 tests/
   sdk.test.mjs                # Resource contracts and transport behavior
   package.test.mjs            # Packed-package installation and compatibility
@@ -67,9 +76,12 @@ Keep changes within the SDK's supported API surface unless a new feature has bee
 
 | Resource | Methods |
 | --- | --- |
-| `nexiomConnect.emails` | `send(params, options?)` |
+| `nexiomConnect.emails` | `send(params, options?)`, `cancel(messageId)`, `reschedule(messageId, { scheduledAt })`, `list(params?)`, `get(deliveryId)` |
+| `nexiomConnect.emails.suppressions` | `list(params?)` |
 | `nexiomConnect.contacts` | `create(params)`, `list(params?)`, `get(id)`, `update(id, params)`, `delete(id)` |
-| `nexiomConnect.contacts.properties` | `create({ name, type, fallbackValue? })`, `list(params?)`, `update(id, { fallbackValue })`, `delete(id)` |
+| `nexiomConnect.contacts.properties` | `create({ name, type, fallbackValue? })`, `list(params?)`, `update(id, { name?, type?, fallbackValue? })`, `delete(id)` |
+| `nexiomConnect.templates` | `list(params?)`, `get(templateId)`, `variables(templateId)`, `versions(templateId, params?)` |
+| `nexiomConnect.domains` | `create({ domain, openTracking? })`, `list(params?)`, `get(domainId)`, `verify(domainId)`, `delete(domainId)` |
 
 Every method accepts request options as its final argument. Email sending also accepts `idempotencyKey` in those options.
 
@@ -86,7 +98,8 @@ Every method accepts request options as its final argument. Email sending also a
 | Response fields | Preserve API field names, including snake_case fields; dates remain ISO strings |
 | Contact updates | Require `email`; optional fields must follow the existing update contract |
 | Property listing | Fetch the complete collection and apply optional `type` and `search` filters locally |
-| Retries | Retry reads and idempotent email sends only; reuse the email key across attempts |
+| Retries | Retry reads, idempotent email sends, email cancels, and domain verification only; reuse the email key across attempts |
+| Collections | Endpoints that return `{ data: [...] }` resolve to the array; a non-array is a `protocol` error |
 | Types | Keep resource request and response types in the resource's `types.ts` |
 | Exports | Export supported public types through `src/index.ts`; keep the transport internal |
 | Imports | Use relative imports with `.js` extensions for local TypeScript modules |

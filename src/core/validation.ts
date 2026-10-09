@@ -63,3 +63,17 @@ export function queryString(values: Record<string, string | number | undefined>)
 
   return query.size ? `?${query}` : "";
 }
+
+/** Checks an optional value against the API's allowed values. */
+export function oneOf(value: unknown, name: string, allowed: readonly string[]): void {
+  if (value !== undefined && (typeof value !== "string" || !allowed.includes(value))) {
+    throw new NexiomValidationError(`${name} must be one of: ${allowed.join(", ")}`);
+  }
+}
+
+/** Checks an optional string filter. */
+export function optionalString(value: unknown, name: string): void {
+  if (value !== undefined && typeof value !== "string") {
+    throw new NexiomValidationError(`${name} must be a string`);
+  }
+}

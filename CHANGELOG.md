@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 — 2026-10-10
+
+- Add `templates.list(params?)`, `templates.get(templateId)`, `templates.variables(templateId)`, and `templates.versions(templateId, params?)`.
+- Add `domains.create({ domain, openTracking? })`, `domains.list(params?)`, `domains.get(domainId)`, `domains.verify(domainId)`, and `domains.delete(domainId)`. Verify retries automatically because re-running a DNS check is safe; create and delete are not retried.
+- Add `emails.suppressions.list(params?)` (cursor pagination over suppressed addresses and their reasons).
+- Validate page, limit, status, origin, cursor, and search arguments for the new methods before making a request.
+
 ## 0.2.1 — Unreleased
 
 - First npm release of the 0.2.0 changes below. Releases are now staged on npm and approved by a maintainer with 2FA.
