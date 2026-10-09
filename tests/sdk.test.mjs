@@ -57,6 +57,25 @@ test("named ESM and CJS exports expose only requested resource methods", () => {
     "list",
     "get",
   ]);
+  assert.deepEqual(Object.getOwnPropertyNames(Object.getPrototypeOf(sdk.emails.suppressions)), [
+    "constructor",
+    "list",
+  ]);
+  assert.deepEqual(Object.getOwnPropertyNames(Object.getPrototypeOf(sdk.templates)), [
+    "constructor",
+    "list",
+    "get",
+    "variables",
+    "versions",
+  ]);
+  assert.deepEqual(Object.getOwnPropertyNames(Object.getPrototypeOf(sdk.domains)), [
+    "constructor",
+    "create",
+    "list",
+    "get",
+    "verify",
+    "delete",
+  ]);
   assert.equal(sdk.mail, undefined);
 });
 
@@ -576,4 +595,323 @@ test("a delivery detail that is not an object is a protocol failure", async () =
     const { sdk } = fixture(() => new Response(body, { status: 200 }));
     assert.equal((await sdk.emails.get("del_1")).error.kind, "protocol");
   }
+});
+
+const variable = {
+  id: "var_1",
+  key: "first_name",
+  type: "string",
+  required: true,
+  fallback_value: null,
+};
+const templateVersion = {
+  id: "ver_2",
+  template_id: "tpl_1",
+  version_number: 2,
+  status: "published",
+  subject: "Welcome, {{first_name}}",
+  html: "<p>Hi {{first_name}}</p>",
+  text: null,
+  variables: [variable],
+};
+const template = {
+  id: "tpl_1",
+  name: "Welcome",
+  alias: "welcome",
+  origin: "custom",
+  published_version_id: "ver_2",
+  draft_version: null,
+  published_version: templateVersion,
+};
+const domain = {
+  id: "dom_1",
+  domain: "mail.example.com",
+  status: "pending",
+  region: "global",
+  open_tracking: true,
+  dns_records: [{ id: "dns_1", purpose: "dkim", record_type: "CNAME", status: "pending" }],
+};
+
+function assertTenantFree(calls) {
+  for (const call of calls) {
+    assert.equal(call.headers.get("authorization"), "Bearer nc_test_key");
+    for (const key of ["orgId", "organizationId", "projectId"]) {
+      assert.equal(new URL(call.url).searchParams.has(key), false);
+      assert.equal(Object.hasOwn(call.body ?? {}, key), false);
+      assert.equal(call.headers.has(key), false);
+    }
+  }
+}
+
+test("suppressions list sends search, limit, and cursor and returns the page", async () => {
+  const page = {
+    items: [
+      { email: "gone@example.com", reason: "hard_bounce" },
+      { email: "reader@example.com", reason: "unsubscribed" },
+    ],
+    nextCursor: "next_1",
+    hasMore: true,
+  };
+  const { sdk, calls } = fixture(() => json({ message: "Email suppressions fetched", data: page }));
+
+  const listed = await sdk.emails.suppressions.list({
+    search: "example.com",
+    limit: 2,
+    cursor: "cur_1",
+    projectId: "forbidden",
+  });
+  assert.equal(listed.error, null);
+  assert.deepEqual(listed.data, page);
+  assert.equal(calls[0].method, "GET");
+  assert.equal(new URL(calls[0].url).pathname, "/api/v1/emails/suppressions");
+  assert.deepEqual(Object.fromEntries(new URL(calls[0].url).searchParams), {
+    search: "example.com",
+    limit: "2",
+    cursor: "cur_1",
+  });
+  assert.equal(calls[0].body, undefined);
+
+  await sdk.emails.suppressions.list();
+  assert.equal(calls[1].url, "https://api-connect.nxiom.com/api/v1/emails/suppressions");
+  assertTenantFree(calls);
+});
+
+test("template methods follow the backend contract and unwrap their data", async () => {
+  const page = { items: [template], total: 1, page: 2, limit: 10 };
+  const { sdk, calls } = fixture((url) => {
+    const { pathname } = new URL(url);
+    if (pathname.endsWith("/variables")) {
+      // The variables endpoint returns { data } without a message.
+      return json({ data: [variable] });
+    }
+    if (pathname.endsWith("/versions")) {
+      return json({ message: "Email template versions fetched", data: [templateVersion] });
+    }
+    if (pathname.endsWith("/templates")) {
+      return json({ message: "Email templates fetched", data: page });
+    }
+    return json({ message: "Email template details fetched", data: template });
+  });
+
+  const listed = await sdk.templates.list({
+    page: 2,
+    limit: 10,
+    status: "changes_in_draft",
+    search: "Welcome & Co",
+    origin: "custom",
+    category: "onboarding",
+    orgId: "forbidden",
+  });
+  assert.deepEqual(listed.data, page);
+  assert.equal(calls[0].method, "GET");
+  assert.equal(new URL(calls[0].url).pathname, "/api/v1/emails/templates");
+  assert.deepEqual(Object.fromEntries(new URL(calls[0].url).searchParams), {
+    page: "2",
+    limit: "10",
+    status: "changes_in_draft",
+    search: "Welcome & Co",
+    origin: "custom",
+    category: "onboarding",
+  });
+
+  await sdk.templates.list();
+  assert.equal(calls[1].url, "https://api-connect.nxiom.com/api/v1/emails/templates");
+
+  assert.deepEqual((await sdk.templates.get("tpl_1")).data, template);
+  assert.equal(calls[2].url, "https://api-connect.nxiom.com/api/v1/emails/templates/tpl_1");
+
+  await sdk.templates.get("id/with ?#");
+  assert.match(calls[3].url, /\/templates\/id%2Fwith%20%3F%23$/);
+
+  assert.deepEqual((await sdk.templates.variables("tpl_1")).data, [variable]);
+  assert.equal(
+    calls[4].url,
+    "https://api-connect.nxiom.com/api/v1/emails/templates/tpl_1/variables",
+  );
+
+  assert.deepEqual((await sdk.templates.versions("tpl_1", { limit: 1, beforeVersion: 3 })).data, [
+    templateVersion,
+  ]);
+  assert.equal(
+    calls[5].url,
+    "https://api-connect.nxiom.com/api/v1/emails/templates/tpl_1/versions?limit=1&beforeVersion=3",
+  );
+
+  await sdk.templates.versions("tpl_1");
+  assert.equal(calls[6].url, "https://api-connect.nxiom.com/api/v1/emails/templates/tpl_1/versions");
+
+  assert.ok(calls.every((call) => call.method === "GET" && call.body === undefined));
+  assertTenantFree(calls);
+});
+
+test("template collections that are not arrays are protocol failures", async () => {
+  for (const data of [{ items: [] }, {}]) {
+    const { sdk } = fixture(() => json({ data }));
+    assert.equal((await sdk.templates.variables("tpl_1")).error.kind, "protocol");
+    assert.equal((await sdk.templates.versions("tpl_1")).error.kind, "protocol");
+  }
+  const { sdk: denied } = fixture(() => json({ message: "Not found" }, 404));
+  assert.equal((await denied.templates.variables("tpl_1")).error.status, 404);
+  assert.equal((await denied.templates.versions("tpl_1")).error.status, 404);
+});
+
+test("domain methods follow the backend contract and unwrap their data", async () => {
+  const page = { items: [domain], total: 1, page: 1, limit: 50 };
+  const { sdk, calls } = fixture((url, init) => {
+    if (init.method === "DELETE") {
+      return json({ success: true });
+    }
+    if (init.method === "POST") {
+      // Create and verify return { data } without a message.
+      return json({ data: url.endsWith("/verify") ? { ...domain, status: "verified" } : domain });
+    }
+    if (new URL(url).pathname.endsWith("/domains")) {
+      return json({ message: "Email domains fetched", data: page });
+    }
+    return json({ message: "Email domain details fetched", data: domain });
+  });
+
+  const created = await sdk.domains.create({
+    domain: "mail.example.com",
+    openTracking: false,
+    projectId: "forbidden",
+  });
+  assert.deepEqual(created.data, domain);
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[0].url, "https://api-connect.nxiom.com/api/v1/emails/domains");
+  assert.equal(calls[0].headers.get("content-type"), "application/json");
+  assert.deepEqual(calls[0].body, { domain: "mail.example.com", openTracking: false });
+
+  await sdk.domains.create({ domain: "mail.example.com" });
+  assert.deepEqual(calls[1].body, { domain: "mail.example.com" });
+
+  const listed = await sdk.domains.list({
+    page: 1,
+    limit: 50,
+    status: "verified",
+    search: "example",
+    orgId: "forbidden",
+  });
+  assert.deepEqual(listed.data, page);
+  assert.equal(calls[2].method, "GET");
+  assert.equal(
+    calls[2].url,
+    "https://api-connect.nxiom.com/api/v1/emails/domains?page=1&limit=50&status=verified&search=example",
+  );
+
+  await sdk.domains.list();
+  assert.equal(calls[3].url, "https://api-connect.nxiom.com/api/v1/emails/domains");
+
+  assert.deepEqual((await sdk.domains.get("dom_1")).data, domain);
+  assert.equal(calls[4].method, "GET");
+  assert.equal(calls[4].url, "https://api-connect.nxiom.com/api/v1/emails/domains/dom_1");
+
+  assert.equal((await sdk.domains.verify("dom_1")).data.status, "verified");
+  assert.equal(calls[5].method, "POST");
+  assert.equal(calls[5].url, "https://api-connect.nxiom.com/api/v1/emails/domains/dom_1/verify");
+  assert.equal(calls[5].body, undefined);
+  assert.equal(calls[5].headers.has("content-type"), false);
+
+  assert.deepEqual((await sdk.domains.delete("id/with ?#")).data, { success: true });
+  assert.equal(calls[6].method, "DELETE");
+  assert.match(calls[6].url, /\/domains\/id%2Fwith%20%3F%23$/);
+  assertTenantFree(calls);
+});
+
+test("template, domain, and suppression reads and domain verification retry", async () => {
+  const { sdk, calls } = fixture(
+    (url, _, n) => {
+      if (n % 2 === 1) {
+        return json({ message: "Unavailable" }, 503, { "retry-after": "0" });
+      }
+      const { pathname } = new URL(url);
+      if (pathname.endsWith("/variables") || pathname.endsWith("/versions")) {
+        return json({ data: [] });
+      }
+      return json({ data: {} });
+    },
+    { maxRetries: 1 },
+  );
+  for (const read of [
+    () => sdk.emails.suppressions.list(),
+    () => sdk.templates.list(),
+    () => sdk.templates.get("tpl_1"),
+    () => sdk.templates.variables("tpl_1"),
+    () => sdk.templates.versions("tpl_1"),
+    () => sdk.domains.list(),
+    () => sdk.domains.get("dom_1"),
+    () => sdk.domains.verify("dom_1"),
+  ]) {
+    assert.equal((await read()).error, null);
+  }
+  assert.equal(calls.length, 16);
+  assert.equal(calls[14].method, "POST");
+  assert.equal(calls[15].url, calls[14].url);
+});
+
+test("domain create and delete never retry even with an increased retry count", async () => {
+  const { sdk, calls } = fixture(() => json({}, 503, { "retry-after": "0" }), { maxRetries: 10 });
+  assert.equal((await sdk.domains.create({ domain: "mail.example.com" })).error.status, 503);
+  assert.equal((await sdk.domains.delete("dom_1")).error.status, 503);
+  assert.equal(calls.length, 2);
+
+  const { sdk: offline, calls: attempts } = fixture(
+    () => {
+      throw new Error("connection lost");
+    },
+    { maxRetries: 10 },
+  );
+  assert.equal((await offline.domains.create({ domain: "mail.example.com" })).error.kind, "network");
+  assert.equal((await offline.domains.delete("dom_1")).error.kind, "network");
+  assert.equal(attempts.length, 2);
+});
+
+test("invalid template, domain, and suppression arguments fail before fetch", () => {
+  const { sdk, calls } = fixture();
+  for (const action of [
+    () => sdk.emails.suppressions.list({ search: "" }),
+    () => sdk.emails.suppressions.list({ search: "   " }),
+    () => sdk.emails.suppressions.list({ search: "x".repeat(256) }),
+    () => sdk.emails.suppressions.list({ search: 1 }),
+    () => sdk.emails.suppressions.list({ limit: 0 }),
+    () => sdk.emails.suppressions.list({ limit: 101 }),
+    () => sdk.emails.suppressions.list({ limit: 1.5 }),
+    () => sdk.emails.suppressions.list({ cursor: "" }),
+    () => sdk.emails.suppressions.list({ cursor: "x".repeat(401) }),
+    () => sdk.templates.list({ page: 0 }),
+    () => sdk.templates.list({ page: 10_001 }),
+    () => sdk.templates.list({ page: 1.5 }),
+    () => sdk.templates.list({ limit: 0 }),
+    () => sdk.templates.list({ limit: 101 }),
+    () => sdk.templates.list({ status: "saved" }),
+    () => sdk.templates.list({ origin: "shared" }),
+    () => sdk.templates.list({ search: 1 }),
+    () => sdk.templates.list({ category: ["welcome"] }),
+    () => sdk.templates.get(""),
+    () => sdk.templates.get(".."),
+    () => sdk.templates.variables(" "),
+    () => sdk.templates.variables("."),
+    () => sdk.templates.versions(""),
+    () => sdk.templates.versions("tpl_1", { limit: 101 }),
+    () => sdk.templates.versions("tpl_1", { limit: 0 }),
+    () => sdk.templates.versions("tpl_1", { beforeVersion: 0 }),
+    () => sdk.templates.versions("tpl_1", { beforeVersion: 1.5 }),
+    () => sdk.domains.create(),
+    () => sdk.domains.create({}),
+    () => sdk.domains.create({ domain: " " }),
+    () => sdk.domains.create({ domain: "mail.example.com", openTracking: "yes" }),
+    () => sdk.domains.list({ page: 10_001 }),
+    () => sdk.domains.list({ limit: 101 }),
+    () => sdk.domains.list({ status: "active" }),
+    () => sdk.domains.list({ search: 1 }),
+    () => sdk.domains.get(""),
+    () => sdk.domains.get(".."),
+    () => sdk.domains.verify(""),
+    () => sdk.domains.verify("."),
+    () => sdk.domains.delete(""),
+    () => sdk.domains.delete(".."),
+  ]) {
+    assert.throws(action, NexiomValidationError);
+  }
+  assert.equal(calls.length, 0);
 });

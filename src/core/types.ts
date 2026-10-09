@@ -9,7 +9,7 @@ export interface NexiomConnectOptions {
   /** Total request deadline, including retries, in milliseconds. Default: 30,000. */
   timeout?: number | undefined;
 
-  /** Additional attempts for reads, idempotent email sends, and cancels only. Default: 2. */
+  /** Additional attempts for reads, idempotent email sends, cancels, and domain verification only. Default: 2. */
   maxRetries?: number | undefined;
 
   /** A Fetch-compatible implementation for instrumentation or testing. */

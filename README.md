@@ -1,6 +1,6 @@
 # Nexiom Connect Node.js SDK
 
-The official Node.js SDK for Nexiom Connect. Send emails and manage contacts with TypeScript support, ESM and CommonJS builds, and no runtime dependencies.
+The official Node.js SDK for Nexiom Connect. Send emails, manage contacts, and read templates, sending domains, and suppressions with TypeScript support, ESM and CommonJS builds, and no runtime dependencies.
 
 ## Install
 
@@ -124,6 +124,30 @@ for (const delivery of data.items) {
 
 `list()` also accepts `source`, `recipient`, `search`, `contactId`, `templateId`, `startDate`, and `endDate`. `get()` takes a delivery ID from `deliveryIds` or `list()`, not a message ID.
 
+## Email suppressions
+
+| Method | Description |
+| --- | --- |
+| `suppressions.list(params?)` | List addresses your project does not send to, and why |
+
+Requires a full-access API key.
+
+```ts
+const { data, error } = await nexiomConnect.emails.suppressions.list({ search: "example.com" });
+
+if (error) {
+  throw error;
+}
+
+for (const suppression of data.items) {
+  console.log(suppression.email, suppression.reason);
+}
+
+// Next page: pass data.nextCursor as cursor while data.hasMore is true.
+```
+
+`list()` accepts `search` (part of an address, 1–255 characters), `limit` (1–100, default 50), and `cursor`. Addresses are listed alphabetically. `reason` is `hard_bounce`, `complaint`, `unsubscribed`, `invalid`, `manual`, or `temporary_failure`.
+
 ## Contacts
 
 Contact methods require a full-access API key.
@@ -182,13 +206,68 @@ console.log(data.id, data.key);
 
 Types are `string`, `number`, and `date`. A type can change only while no contact has a value for the property. Fallback values are strings or null. Responses use `key` and `fallback_value`. Optional `type` and case-insensitive `search` filters are applied locally to the complete property list.
 
+## Templates
+
+Template methods require a full-access API key.
+
+| Method | Description |
+| --- | --- |
+| `list(params?)` | List or search templates |
+| `get(templateId)` | Get a template with its draft and published versions |
+| `variables(templateId)` | List the variables of the draft, or of the published version |
+| `versions(templateId, params?)` | List versions, newest first |
+
+```ts
+const { data, error } = await nexiomConnect.templates.get("tpl_123");
+
+if (error) {
+  throw error;
+}
+
+for (const variable of data.published_version?.variables ?? []) {
+  console.log(variable.key, variable.type, variable.required);
+}
+```
+
+`list()` accepts `page` (up to 10,000), `limit` (1–100, default 50), `status` (`draft`, `published`, `changes_in_draft`, or `archived`), `search`, `origin` (`custom` or `prebuilt`), and `category`. It returns `{ items, total, page, limit }`, most recently updated first.
+
+Sends use the published version, so `published_version.variables` lists exactly what a send needs. `variables()` returns the draft's variables while a draft exists. `versions()` accepts `limit` and `beforeVersion`: pass the last `version_number` to read older versions, until a response has fewer than `limit` versions.
+
+## Domains
+
+Domain methods require a full-access API key.
+
+| Method | Description |
+| --- | --- |
+| `create({ domain, openTracking? })` | Add a sending subdomain |
+| `list(params?)` | List or search domains |
+| `get(domainId)` | Get a domain with its DNS records |
+| `verify(domainId)` | Check the domain's DNS records |
+| `delete(domainId)` | Delete a domain |
+
+```ts
+const { data, error } = await nexiomConnect.domains.create({ domain: "mail.example.com" });
+
+if (error) {
+  throw error;
+}
+
+for (const record of data.dns_records ?? []) {
+  console.log(record.record_type, record.name, record.value);
+}
+```
+
+Use a subdomain such as `mail.example.com`; root domains are not accepted. `openTracking` defaults to `true`. Publish the returned DNS records with your DNS provider, then call `verify(domainId)` and check `data.status` (`pending`, `verified`, or `failed`) before sending.
+
+`list()` accepts `page` (up to 10,000), `limit` (1–100, default 50), `status`, and `search`, and returns `{ items, total, page, limit }`. Deleting a domain affects future sends that use it.
+
 ## Request options
 
 The default base URL is `https://api-connect.nxiom.com/api`. Custom URLs exclude `/v1` and use HTTPS, except for local development on loopback hosts.
 
 Configure `timeout` (default 30,000 ms), `maxRetries` (default 2), or a Fetch-compatible `fetch` implementation when creating the client. Each method also accepts `{ signal, timeout, maxRetries }` as its final argument.
 
-The timeout covers the entire request, including retries. Reads, email sends, and cancels retry network errors and HTTP 408, 429, 500, 502, 503, and 504, honoring `Retry-After`. When the wait would outlast the timeout, the SDK returns that API error at once. Reschedules and contact and property mutations are not automatically retried. Custom fetch implementations must honor `AbortSignal` and standard Fetch redirect behavior.
+The timeout covers the entire request, including retries. Reads, email sends, cancels, and domain verification retry network errors and HTTP 408, 429, 500, 502, 503, and 504, honoring `Retry-After`. When the wait would outlast the timeout, the SDK returns that API error at once. Reschedules, contact and property mutations, and domain creation and deletion are not automatically retried. Custom fetch implementations must honor `AbortSignal` and standard Fetch redirect behavior.
 
 ## Errors
 
@@ -201,6 +280,8 @@ Error kinds are `api`, `network`, `timeout`, `aborted`, and `protocol`. Invalid 
 - [Send an email](./examples/send.mjs)
 - [Create a contact](./examples/contacts.mjs)
 - [Create a contact property](./examples/contact-properties.mjs)
+- [Add a sending domain](./examples/domains.mjs)
+- [List published templates](./examples/templates.mjs)
 
 ## Development
 

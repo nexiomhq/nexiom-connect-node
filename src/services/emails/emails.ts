@@ -2,6 +2,7 @@ import type { Client } from "../../core/client.js";
 import { NexiomValidationError } from "../../core/errors.js";
 import type { RequestOptions, SendEmailOptions } from "../../core/types.js";
 import { integer, nonEmpty, queryString, resourceId, timestamp } from "../../core/validation.js";
+import { EmailSuppressions } from "./suppressions/suppressions.js";
 import type {
   CancelEmailResponse,
   Email,
@@ -16,7 +17,11 @@ import type {
 const PATH = "/v1/emails";
 
 export class Emails {
-  constructor(private readonly client: Client) {}
+  readonly suppressions: EmailSuppressions;
+
+  constructor(private readonly client: Client) {
+    this.suppressions = new EmailSuppressions(client);
+  }
 
   send(params: SendEmailParams, options: SendEmailOptions = {}) {
     nonEmpty(params?.from, "from");
