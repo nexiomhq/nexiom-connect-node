@@ -3,13 +3,15 @@ import assert from "node:assert/strict";
 import { NexiomConnect, NexiomError, NexiomValidationError } from "../dist/index.js";
 import { createRequire } from "node:module";
 
+const { version } = createRequire(import.meta.url)("../package.json");
+
 const mail = {
   from: "hello@example.com",
   to: "user@example.com",
   subject: "Hello",
   html: "<p>Hello</p>",
 };
-const accepted = { messageId: "msg_1", totalQueued: 1, deliveryIds: ["del_1"] };
+const accepted = { messageId: "msg_1", totalQueued: 1, deliveryIds: ["del_1"], scheduledAt: null };
 const contact = {
   id: "ct_1",
   email: "user@example.com",
@@ -50,6 +52,10 @@ test("named ESM and CJS exports expose only requested resource methods", () => {
   assert.deepEqual(Object.getOwnPropertyNames(Object.getPrototypeOf(sdk.emails)), [
     "constructor",
     "send",
+    "cancel",
+    "reschedule",
+    "list",
+    "get",
   ]);
   assert.equal(sdk.mail, undefined);
 });
@@ -63,7 +69,7 @@ test("send uses production host, v1 resource path, bearer auth and idempotency",
   assert.equal(calls[0].method, "POST");
   assert.equal(calls[0].headers.get("authorization"), "Bearer nc_test_key");
   assert.equal(calls[0].headers.get("content-type"), "application/json");
-  assert.match(calls[0].headers.get("user-agent"), /^nexiom-connect-node\/0\.1\.0$/);
+  assert.equal(calls[0].headers.get("user-agent"), `nexiom-connect-node/${version}`);
   assert.match(result.response.idempotencyKey, /^[0-9a-f-]{36}$/);
   assert.equal(calls[0].headers.get("idempotency-key"), result.response.idempotencyKey);
   assert.deepEqual(calls[0].body, mail);
@@ -168,9 +174,12 @@ test("property methods map name/fallbackValue; filters are local", async () => {
     property,
   ]);
   assert.equal(new URL(calls[1].url).search, "");
-  await sdk.contacts.properties.update("prop_1", { fallbackValue: null, name: "ignored" });
+  await sdk.contacts.properties.update("prop_1", { fallbackValue: null, projectId: "ignored" });
   assert.deepEqual(calls[2].body, { fallback_value: null });
   assert.equal(calls[2].method, "PATCH");
+  await sdk.contacts.properties.update("prop_1", { name: "company_name", type: "string" });
+  assert.deepEqual(calls[3].body, { key: "company_name", type: "string" });
+  assert.equal(calls[3].url, "https://api-connect.nxiom.com/api/v1/emails/properties/prop_1");
   assert.deepEqual((await sdk.contacts.properties.delete("prop_1")).data, { success: true });
 });
 
@@ -243,7 +252,8 @@ test("contact mutations never retry even with an increased retry count", async (
   await sdk.contacts.properties.create({ name: "company", type: "string" });
   await sdk.contacts.properties.update("prop_1", { fallbackValue: null });
   await sdk.contacts.properties.delete("prop_1");
-  assert.equal(calls.length, 6);
+  await sdk.emails.reschedule("msg_1", { scheduledAt: "2026-10-06T09:00:00+01:00" });
+  assert.equal(calls.length, 7);
 });
 
 test("network failure is typed, redacted, and retryable for sends", async () => {
@@ -266,15 +276,31 @@ test("network failure is typed, redacted, and retryable for sends", async () => 
   assert.doesNotMatch(JSON.stringify(result), /nc_test_key/);
 });
 
-test("total deadline covers Retry-After and supports HTTP-date", async () => {
+test("a Retry-After beyond the deadline returns the API error at once, including HTTP-date", async () => {
   for (const delay of ["60", new Date(Date.now() + 60_000).toUTCString()]) {
-    const { sdk, calls } = fixture(() => json({}, 429, { "retry-after": delay }), {
-      maxRetries: 2,
-      timeout: 20,
-    });
-    assert.equal((await sdk.emails.send(mail)).error.kind, "timeout");
+    const { sdk, calls } = fixture(
+      () => json({ error: "rate_limited", message: "Slow down" }, 429, { "retry-after": delay }),
+      { maxRetries: 2, timeout: 5_000 },
+    );
+    const started = Date.now();
+    const { error } = await sdk.emails.send(mail);
+    assert.equal(error.kind, "api");
+    assert.equal(error.status, 429);
+    assert.equal(error.code, "rate_limited");
     assert.equal(calls.length, 1);
+    assert.ok(Date.now() - started < 1_000);
   }
+});
+
+test("a Retry-After within the deadline is honored", async () => {
+  const { sdk, calls } = fixture(
+    (_, __, n) => (n === 1 ? json({}, 429, { "retry-after": "0.05" }) : json({ data: accepted })),
+    { maxRetries: 1, timeout: 5_000 },
+  );
+  const started = Date.now();
+  assert.equal((await sdk.emails.send(mail)).error, null);
+  assert.equal(calls.length, 2);
+  assert.ok(Date.now() - started >= 40);
 });
 
 test("timeout aborts an in-flight request", async () => {
@@ -316,7 +342,7 @@ test("cancellation interrupts retry backoff", async () => {
   const { sdk, calls } = fixture(
     () => {
       setTimeout(() => controller.abort(), 10);
-      return json({}, 429, { "retry-after": "60" });
+      return json({}, 429, { "retry-after": "5" });
     },
     { maxRetries: 2 },
   );
@@ -326,10 +352,16 @@ test("cancellation interrupts retry backoff", async () => {
 });
 
 test("per-request timeout and retry overrides take effect", async () => {
-  const { sdk, calls } = fixture(() => json({}, 503, { "retry-after": "60" }), { maxRetries: 2 });
+  const { sdk, calls } = fixture(() => json({}, 503, { "retry-after": "0" }), { maxRetries: 2 });
   assert.equal((await sdk.contacts.list({}, { maxRetries: 0 })).error.kind, "api");
-  assert.equal((await sdk.contacts.list({}, { timeout: 10 })).error.kind, "timeout");
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 1);
+  const { sdk: hanging } = fixture(
+    (_, { signal }) =>
+      new Promise((_, reject) =>
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true }),
+      ),
+  );
+  assert.equal((await hanging.contacts.list({}, { timeout: 10 })).error.kind, "timeout");
 });
 
 test("redirects are surfaced rather than forwarded with credentials", async () => {
@@ -385,6 +417,7 @@ test("invalid configuration and arguments fail before fetch", async () => {
     () => sdk.contacts.get(".."),
     () => sdk.contacts.list({ limit: 101 }),
     () => sdk.contacts.list({ page: 1.5 }),
+    () => sdk.contacts.list({ page: 10_001 }),
     () => sdk.contacts.update("ct_1", {}),
     () => sdk.emails.send({ ...mail, to: [] }),
     () => sdk.emails.send({ ...mail, to: ["a@b.com", "c@d.com"], cc: "e@f.com" }),
@@ -392,6 +425,17 @@ test("invalid configuration and arguments fail before fetch", async () => {
     () => sdk.emails.send(mail, { idempotencyKey: "bad key" }),
     () => sdk.contacts.properties.update("p", {}),
     () => sdk.contacts.properties.create({ name: "x", type: "boolean" }),
+    () => sdk.contacts.properties.update("p", { name: " " }),
+    () => sdk.contacts.properties.update("p", { type: "boolean" }),
+    () => sdk.emails.send({ ...mail, scheduledAt: "tomorrow" }),
+    () => sdk.emails.send({ ...mail, scheduledAt: new Date(NaN) }),
+    () => sdk.emails.cancel(""),
+    () => sdk.emails.reschedule("msg_1", {}),
+    () => sdk.emails.reschedule("..", { scheduledAt: new Date() }),
+    () => sdk.emails.list({ limit: 0 }),
+    () => sdk.emails.list({ cursor: "x".repeat(1025) }),
+    () => sdk.emails.list({ startDate: "" }),
+    () => sdk.emails.get(""),
   ]) {
     assert.throws(action, NexiomValidationError);
   }
@@ -423,4 +467,113 @@ test("network failure after a retry does not retain stale response metadata", as
   assert.equal(result.error.kind, "network");
   assert.equal(result.response.status, null);
   assert.equal(result.response.requestId, null);
+});
+
+test("scheduled sends, cancel, reschedule, and email logs follow the backend contract", async () => {
+  const scheduledAt = "2026-10-05T09:00:00+01:00";
+  const canceled = {
+    messageId: "msg_1",
+    status: "canceled",
+    canceledAt: "2026-10-04T12:00:00.000Z",
+    deliveryIds: ["del_1"],
+  };
+  const rescheduled = {
+    messageId: "msg_1",
+    status: "scheduled",
+    scheduledAt: "2026-10-06T08:00:00.000Z",
+    deliveryIds: ["del_1"],
+  };
+  const page = { items: [], total: null, limit: 10, hasMore: true, nextCursor: "next_1" };
+  const delivery = { id: "del_1", message_id: "msg_1", status: "scheduled", open_count: 0 };
+  const { sdk, calls } = fixture((url, init) => {
+    if (url.endsWith("/send")) {
+      return json({ data: { ...accepted, scheduledAt: "2026-10-05T08:00:00.000Z" } }, 202);
+    }
+    if (url.endsWith("/cancel")) {
+      return json({ message: "Scheduled email canceled", data: canceled });
+    }
+    if (init.method === "PATCH") {
+      return json({ message: "Scheduled email rescheduled", data: rescheduled });
+    }
+    if (url.includes("/logs?")) {
+      return json({ message: "Email logs fetched", data: page });
+    }
+    // The delivery detail endpoint returns the resource without a data wrapper.
+    return json(delivery);
+  });
+
+  const sent = await sdk.emails.send({ ...mail, scheduledAt });
+  assert.equal(sent.data.scheduledAt, "2026-10-05T08:00:00.000Z");
+  assert.equal(calls[0].body.scheduledAt, scheduledAt);
+
+  await sdk.emails.send({ ...mail, scheduledAt: new Date("2026-10-05T08:00:00Z") });
+  assert.equal(calls[1].body.scheduledAt, "2026-10-05T08:00:00.000Z");
+
+  assert.deepEqual((await sdk.emails.cancel("msg_1")).data, canceled);
+  assert.equal(calls[2].method, "POST");
+  assert.equal(calls[2].url, "https://api-connect.nxiom.com/api/v1/emails/messages/msg_1/cancel");
+  assert.equal(calls[2].body, undefined);
+
+  const moved = await sdk.emails.reschedule("msg_1", {
+    scheduledAt: new Date("2026-10-06T08:00:00Z"),
+    projectId: "ignored",
+  });
+  assert.deepEqual(moved.data, rescheduled);
+  assert.equal(calls[3].url, "https://api-connect.nxiom.com/api/v1/emails/messages/msg_1");
+  assert.deepEqual(calls[3].body, { scheduledAt: "2026-10-06T08:00:00.000Z" });
+
+  const listed = await sdk.emails.list({
+    limit: 10,
+    cursor: "cur_1",
+    status: "scheduled",
+    source: "api",
+    recipient: "user@example.com",
+    contactId: "ct_1",
+    startDate: new Date("2026-10-01T00:00:00Z"),
+    endDate: "2026-10-02T00:00:00Z",
+    orgId: "forbidden",
+  });
+  assert.deepEqual(listed.data, page);
+  const query = new URL(calls[4].url).searchParams;
+  assert.equal(new URL(calls[4].url).pathname, "/api/v1/emails/logs");
+  assert.deepEqual(Object.fromEntries(query), {
+    limit: "10",
+    cursor: "cur_1",
+    status: "scheduled",
+    source: "api",
+    recipient: "user@example.com",
+    contactId: "ct_1",
+    startDate: "2026-10-01T00:00:00.000Z",
+    endDate: "2026-10-02T00:00:00Z",
+  });
+
+  assert.deepEqual((await sdk.emails.get("del_1")).data, delivery);
+  assert.equal(calls[5].url, "https://api-connect.nxiom.com/api/v1/emails/logs/del_1");
+
+  for (const call of calls) {
+    for (const key of ["orgId", "organizationId", "projectId"]) {
+      assert.equal(new URL(call.url).searchParams.has(key), false);
+      assert.equal(Object.hasOwn(call.body ?? {}, key), false);
+    }
+  }
+});
+
+test("cancel is retried because canceling twice is safe; reads of one delivery retry too", async () => {
+  const { sdk, calls } = fixture(
+    (_, __, n) =>
+      n % 2 === 1
+        ? json({}, 503, { "retry-after": "0" })
+        : json(n === 2 ? { data: { messageId: "msg_1" } } : { id: "del_1" }),
+    { maxRetries: 1 },
+  );
+  assert.equal((await sdk.emails.cancel("msg_1")).error, null);
+  assert.equal((await sdk.emails.get("del_1")).error, null);
+  assert.equal(calls.length, 4);
+});
+
+test("a delivery detail that is not an object is a protocol failure", async () => {
+  for (const body of ["null", "[]", '"text"']) {
+    const { sdk } = fixture(() => new Response(body, { status: 200 }));
+    assert.equal((await sdk.emails.get("del_1")).error.kind, "protocol");
+  }
 });

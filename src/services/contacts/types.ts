@@ -4,26 +4,26 @@ export type ContactPropertyValue = string | number | null;
 
 export interface CreateContactParams {
   email: string;
-  userId?: string;
-  firstName?: string;
-  lastName?: string;
-  phoneNumber?: string;
-  properties?: Record<string, ContactPropertyValue>;
+  userId?: string | undefined;
+  firstName?: string | undefined;
+  lastName?: string | undefined;
+  phoneNumber?: string | undefined;
+  properties?: Record<string, ContactPropertyValue> | undefined;
 }
 
 /** The current API requires email on updates. */
 export interface UpdateContactParams extends Omit<CreateContactParams, "userId"> {
-  userId?: string | null;
-  emailStatus?: ContactEmailStatus;
+  userId?: string | null | undefined;
+  emailStatus?: ContactEmailStatus | undefined;
 }
 
 export interface ListContactsParams {
-  page?: number;
-  limit?: number;
-  search?: string;
-  emailStatus?: ContactEmailStatus;
-  segmentId?: string;
-  listId?: string;
+  page?: number | undefined;
+  limit?: number | undefined;
+  search?: string | undefined;
+  emailStatus?: ContactEmailStatus | undefined;
+  segmentId?: string | undefined;
+  listId?: string | undefined;
 }
 
 /** Response fields retain the API's snake_case names; dates are ISO strings. */

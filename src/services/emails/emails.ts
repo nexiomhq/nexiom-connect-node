@@ -1,8 +1,19 @@
 import type { Client } from "../../core/client.js";
 import { NexiomValidationError } from "../../core/errors.js";
-import type { SendEmailOptions } from "../../core/types.js";
-import { nonEmpty } from "../../core/validation.js";
-import type { SendEmailParams, SendEmailResponse } from "./types.js";
+import type { RequestOptions, SendEmailOptions } from "../../core/types.js";
+import { integer, nonEmpty, queryString, resourceId, timestamp } from "../../core/validation.js";
+import type {
+  CancelEmailResponse,
+  Email,
+  ListEmailsParams,
+  ListEmailsResponse,
+  RescheduleEmailParams,
+  RescheduleEmailResponse,
+  SendEmailParams,
+  SendEmailResponse,
+} from "./types.js";
+
+const PATH = "/v1/emails";
 
 export class Emails {
   constructor(private readonly client: Client) {}
@@ -36,6 +47,9 @@ export class Emails {
       throw new NexiomValidationError("CC and BCC require one primary recipient");
     }
 
+    const scheduledAt =
+      params.scheduledAt === undefined ? undefined : timestamp(params.scheduledAt, "scheduledAt");
+
     const key = options.idempotencyKey ?? globalThis.crypto.randomUUID();
     if (!/^[\x21-\x7e]{1,128}$/.test(key)) {
       throw new NexiomValidationError(
@@ -61,7 +75,7 @@ export class Emails {
 
     return this.client.request<SendEmailResponse>(
       "POST",
-      "/v1/emails/send",
+      `${PATH}/send`,
       {
         from,
         fromName,
@@ -75,9 +89,68 @@ export class Emails {
         templateId,
         templateVariables,
         metadata,
+        scheduledAt,
       },
       options,
-      key,
+      { idempotencyKey: key },
+    );
+  }
+
+  /** Cancels every scheduled delivery of a message. Canceling twice returns the same result. */
+  cancel(messageId: string, options?: RequestOptions) {
+    return this.client.request<CancelEmailResponse>(
+      "POST",
+      `${PATH}/messages/${resourceId(messageId)}/cancel`,
+      undefined,
+      options,
+      { retryable: true },
+    );
+  }
+
+  /** Moves every scheduled delivery of a message to a new send time. */
+  reschedule(messageId: string, params: RescheduleEmailParams, options?: RequestOptions) {
+    const path = `${PATH}/messages/${resourceId(messageId)}`;
+    const scheduledAt = timestamp(params?.scheduledAt, "scheduledAt");
+
+    return this.client.request<RescheduleEmailResponse>("PATCH", path, { scheduledAt }, options);
+  }
+
+  /** Lists recipient deliveries, newest first. Pass nextCursor as cursor for the next page. */
+  list(params: ListEmailsParams = {}, options?: RequestOptions) {
+    if (params.limit !== undefined) {
+      integer(params.limit, "limit", 1, 100);
+    }
+    if (params.cursor !== undefined && params.cursor.length > 1024) {
+      throw new NexiomValidationError("cursor must contain at most 1024 characters");
+    }
+
+    const { limit, cursor, status, source, recipient, search, contactId, templateId } = params;
+
+    const query = queryString({
+      limit,
+      cursor,
+      status,
+      source,
+      recipient,
+      search,
+      contactId,
+      templateId,
+      startDate:
+        params.startDate === undefined ? undefined : timestamp(params.startDate, "startDate"),
+      endDate: params.endDate === undefined ? undefined : timestamp(params.endDate, "endDate"),
+    });
+
+    return this.client.request<ListEmailsResponse>("GET", `${PATH}/logs${query}`, undefined, options);
+  }
+
+  /** Fetches one recipient delivery by delivery ID (not message ID). */
+  get(deliveryId: string, options?: RequestOptions) {
+    return this.client.request<Email>(
+      "GET",
+      `${PATH}/logs/${resourceId(deliveryId)}`,
+      undefined,
+      options,
+      { envelope: "none" },
     );
   }
 }

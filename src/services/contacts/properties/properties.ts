@@ -11,6 +11,8 @@ import type {
 
 const PATH = "/v1/emails/properties";
 
+const TYPES: readonly string[] = ["string", "number", "date"];
+
 function fallback(value: unknown) {
   if (value !== null && (typeof value !== "string" || value.length > 1000)) {
     throw new NexiomValidationError(
@@ -19,19 +21,26 @@ function fallback(value: unknown) {
   }
 }
 
+function name(value: unknown) {
+  nonEmpty(value, "name");
+
+  if (value.trim().length > 255) {
+    throw new NexiomValidationError("name must contain at most 255 characters");
+  }
+}
+
+function type(value: unknown) {
+  if (typeof value !== "string" || !TYPES.includes(value)) {
+    throw new NexiomValidationError("type must be string, number, or date");
+  }
+}
+
 export class ContactProperties {
   constructor(private readonly client: Client) {}
 
   create(params: CreateContactPropertyParams, options?: RequestOptions) {
-    nonEmpty(params?.name, "name");
-
-    if (params.name.trim().length > 255) {
-      throw new NexiomValidationError("name must contain at most 255 characters");
-    }
-
-    if (!["string", "number", "date"].includes(params.type)) {
-      throw new NexiomValidationError("type must be string, number, or date");
-    }
+    name(params?.name);
+    type(params.type);
 
     if (params.fallbackValue !== undefined) {
       fallback(params.fallbackValue);
@@ -85,12 +94,29 @@ export class ContactProperties {
   }
 
   update(id: string, params: UpdateContactPropertyParams, options?: RequestOptions) {
-    fallback(params?.fallbackValue);
+    const path = `${PATH}/${resourceId(id)}`;
+
+    if (
+      params?.name === undefined &&
+      params?.type === undefined &&
+      params?.fallbackValue === undefined
+    ) {
+      throw new NexiomValidationError("name, type, or fallbackValue is required");
+    }
+    if (params.name !== undefined) {
+      name(params.name);
+    }
+    if (params.type !== undefined) {
+      type(params.type);
+    }
+    if (params.fallbackValue !== undefined) {
+      fallback(params.fallbackValue);
+    }
 
     return this.client.request<ContactProperty>(
       "PATCH",
-      `${PATH}/${resourceId(id)}`,
-      { fallback_value: params.fallbackValue },
+      path,
+      { key: params.name, type: params.type, fallback_value: params.fallbackValue },
       options,
     );
   }

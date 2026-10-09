@@ -31,6 +31,16 @@ export type {
   SendEmailParams,
   SendEmailResponse,
   EmailAddresses,
+  RescheduleEmailParams,
+  RescheduleEmailResponse,
+  CancelEmailResponse,
+  ListEmailsParams,
+  ListEmailsResponse,
+  EmailListItem,
+  Email,
+  EmailStatus,
+  EmailSource,
+  EmailDeliveryReason,
 } from "./services/emails/types.js";
 
 export type {

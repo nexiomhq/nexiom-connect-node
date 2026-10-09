@@ -51,6 +51,17 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+/** How one endpoint is called. Defaults suit reads and `{ data }` responses. */
+export interface RequestBehavior {
+  idempotencyKey?: string | undefined;
+
+  /** Safe to repeat. Default: GET requests and requests with an idempotency key. */
+  retryable?: boolean | undefined;
+
+  /** "none" for endpoints that return the resource without a `data` wrapper. */
+  envelope?: "data" | "none" | undefined;
+}
+
 /** Internal shared HTTP transport. */
 export class Client {
   readonly #apiKey: string;
@@ -102,8 +113,9 @@ export class Client {
     path: string,
     body: unknown,
     options: RequestOptions = {},
-    idempotencyKey?: string,
+    behavior: RequestBehavior = {},
   ): Promise<NexiomResult<T>> {
+    const { idempotencyKey, envelope = "data" } = behavior;
     const timeout = integer(options.timeout ?? this.#timeout, "timeout", 1, MAX_TIMEOUT);
     const maxRetries = integer(options.maxRetries ?? this.#maxRetries, "maxRetries", 0, 10);
     const serialized = body === undefined ? undefined : jsonBody(body);
@@ -121,6 +133,7 @@ export class Client {
       headers.set("Idempotency-Key", idempotencyKey);
     }
 
+    const deadline = Date.now() + timeout;
     const controller = new AbortController();
     let timedOut = false;
 
@@ -142,7 +155,7 @@ export class Client {
       idempotencyKey: idempotencyKey ?? null,
     };
 
-    const retryable = method === "GET" || idempotencyKey !== undefined;
+    const retryable = behavior.retryable ?? (method === "GET" || idempotencyKey !== undefined);
 
     try {
       for (let attempt = 0; ; attempt++) {
@@ -182,12 +195,15 @@ export class Client {
           }
 
           if (raw.ok) {
-            if (
-              !payload ||
-              typeof payload !== "object" ||
-              (!("data" in data) && typeof data.success !== "boolean") ||
-              ("data" in data && (data.data === null || typeof data.data !== "object"))
-            ) {
+            const invalid =
+              envelope === "none"
+                ? !payload || typeof payload !== "object" || Array.isArray(payload)
+                : !payload ||
+                  typeof payload !== "object" ||
+                  (!("data" in data) && typeof data.success !== "boolean") ||
+                  ("data" in data && (data.data === null || typeof data.data !== "object"));
+
+            if (invalid) {
               return {
                 data: null,
                 error: new NexiomError(
@@ -200,8 +216,10 @@ export class Client {
                 response,
               };
             }
-            // All resource endpoints return { data }, except deletes ({ success }).
-            return { data: ("data" in data ? data.data : payload) as T, error: null, response };
+            // Resource endpoints return { data }, deletes return { success }, and a few
+            // detail endpoints return the resource itself (envelope: "none").
+            const result = envelope === "data" && "data" in data ? data.data : payload;
+            return { data: result as T, error: null, response };
           }
 
           error = new NexiomError(
@@ -236,7 +254,13 @@ export class Client {
           return { data: null, error, response };
         }
 
-        await pause(retryDelay(response.headers, attempt), controller.signal);
+        // A wait that cannot finish before the deadline would only turn this error into a timeout.
+        const delay = retryDelay(response.headers, attempt);
+        if (delay >= deadline - Date.now()) {
+          return { data: null, error, response };
+        }
+
+        await pause(delay, controller.signal);
       }
     } catch {
       return {

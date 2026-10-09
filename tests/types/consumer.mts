@@ -31,6 +31,32 @@ sdk.contacts.update("ct_1", { firstName: "Ada" });
 sdk.broadcasts;
 // @ts-expect-error properties support string, number and date
 sdk.contacts.properties.create({ name: "active", type: "boolean" });
-// @ts-expect-error no read email endpoint in this release
-sdk.emails.get("msg_1");
+const scheduled = await sdk.emails.send({
+  from: "a@b.com",
+  to: "c@d.com",
+  subject: "Hello",
+  text: "Hello",
+  scheduledAt: new Date(),
+});
+if (scheduled.data) {
+  const at: string | null = scheduled.data.scheduledAt;
+  await sdk.emails.reschedule(scheduled.data.messageId, { scheduledAt: "2026-10-06T09:00:00Z" });
+  await sdk.emails.cancel(scheduled.data.messageId);
+  void at;
+}
+const logs = await sdk.emails.list({ status: "delivered", limit: 10 });
+if (logs.data?.nextCursor) {
+  await sdk.emails.list({ cursor: logs.data.nextCursor });
+}
+const delivery = await sdk.emails.get("del_1");
+if (delivery.data) {
+  const opens: number = delivery.data.open_count;
+  void opens;
+}
+// Optional fields accept explicit undefined under exactOptionalPropertyTypes.
+const maybeName: string | undefined = undefined;
+await sdk.emails.send({ from: "a@b.com", fromName: maybeName, to: "c@d.com", templateId: "t" });
+await sdk.contacts.properties.update("p_1", { name: "company_name" });
+// @ts-expect-error unknown email status
+sdk.emails.list({ status: "opened" });
 void missingContent;
