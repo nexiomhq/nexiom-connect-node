@@ -75,6 +75,55 @@ await nexiomConnect.emails.send(
 
 Otherwise, the SDK generates a key for each call and reuses it for automatic retries. Keys contain 1–128 printable ASCII characters without whitespace. The key is available as `result.response.idempotencyKey`, including after a timeout.
 
+### Scheduled emails
+
+Pass `scheduledAt` (a `Date` or an ISO 8601 timestamp with an offset, at most 30 days ahead) to send later. Use the returned `messageId` to move or cancel it before it is sent.
+
+```ts
+const { data, error } = await nexiomConnect.emails.send({
+  from: "hello@your-verified-domain.com",
+  to: "customer@example.com",
+  subject: "Your trial ends tomorrow",
+  text: "Your trial ends tomorrow.",
+  scheduledAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+});
+
+if (error) {
+  throw error;
+}
+
+await nexiomConnect.emails.reschedule(data.messageId, {
+  scheduledAt: "2026-10-06T09:00:00+01:00",
+});
+
+await nexiomConnect.emails.cancel(data.messageId);
+```
+
+## Email logs
+
+| Method | Description |
+| --- | --- |
+| `list(params?)` | List recipient deliveries, newest first |
+| `get(deliveryId)` | Get one delivery with its content and history |
+
+Both require a full-access API key.
+
+```ts
+const { data, error } = await nexiomConnect.emails.list({ status: "bounced", limit: 50 });
+
+if (error) {
+  throw error;
+}
+
+for (const delivery of data.items) {
+  console.log(delivery.id, delivery.recipient, delivery.status);
+}
+
+// Next page: pass data.nextCursor as cursor while data.hasMore is true.
+```
+
+`list()` also accepts `source`, `recipient`, `search`, `contactId`, `templateId`, `startDate`, and `endDate`. `get()` takes a delivery ID from `deliveryIds` or `list()`, not a message ID.
+
 ## Contacts
 
 Contact methods require a full-access API key.
@@ -104,7 +153,7 @@ console.log(data.id);
 
 Creation also accepts `userId` and `phoneNumber`. Updates require `email` and accept `emailStatus` (`subscribed` or `unsubscribed`); `userId: null` clears the external user ID.
 
-`list()` accepts `page`, `limit`, `search`, `emailStatus`, `listId`, and `segmentId`. It returns `{ items, total, page, limit }`, with a default page size of 50 and a maximum of 100.
+`list()` accepts `page` (up to 10,000), `limit`, `search`, `emailStatus`, `listId`, and `segmentId`. It returns `{ items, total, page, limit }`, with a default page size of 50 and a maximum of 100.
 
 Responses use snake_case fields such as `first_name` and `created_at`. Dates are ISO strings. `get(id)` also returns properties and activity.
 
@@ -114,7 +163,7 @@ Responses use snake_case fields such as `first_name` and `created_at`. Dates are
 | --- | --- |
 | `create({ name, type, fallbackValue? })` | Create a property |
 | `list(params?)` | List or filter properties |
-| `update(id, { fallbackValue })` | Update the fallback value |
+| `update(id, { name?, type?, fallbackValue? })` | Rename a property, change its type, or set its fallback |
 | `delete(id)` | Delete a property |
 
 ```ts
@@ -131,7 +180,7 @@ if (error) {
 console.log(data.id, data.key);
 ```
 
-Types are `string`, `number`, and `date`. Fallback values are strings or null. Responses use `key` and `fallback_value`. Optional `type` and case-insensitive `search` filters are applied locally to the complete property list.
+Types are `string`, `number`, and `date`. A type can change only while no contact has a value for the property. Fallback values are strings or null. Responses use `key` and `fallback_value`. Optional `type` and case-insensitive `search` filters are applied locally to the complete property list.
 
 ## Request options
 
@@ -139,7 +188,7 @@ The default base URL is `https://api-connect.nxiom.com/api`. Custom URLs exclude
 
 Configure `timeout` (default 30,000 ms), `maxRetries` (default 2), or a Fetch-compatible `fetch` implementation when creating the client. Each method also accepts `{ signal, timeout, maxRetries }` as its final argument.
 
-The timeout covers the entire request, including retries. Reads and email sends retry network errors and HTTP 408, 429, 500, 502, 503, and 504, honoring `Retry-After`. Contact and property mutations are not automatically retried. Custom fetch implementations must honor `AbortSignal` and standard Fetch redirect behavior.
+The timeout covers the entire request, including retries. Reads, email sends, and cancels retry network errors and HTTP 408, 429, 500, 502, 503, and 504, honoring `Retry-After`. When the wait would outlast the timeout, the SDK returns that API error at once. Reschedules and contact and property mutations are not automatically retried. Custom fetch implementations must honor `AbortSignal` and standard Fetch redirect behavior.
 
 ## Errors
 

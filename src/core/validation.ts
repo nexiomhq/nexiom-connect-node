@@ -32,3 +32,34 @@ export function jsonBody(value: unknown): string {
     throw new NexiomValidationError("Request body must be JSON serializable");
   }
 }
+
+/** Serializes a Date or timestamp string; the API checks the offset and allowed range. */
+export function timestamp(value: unknown, name: string): string {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      throw new NexiomValidationError(`${name} must be a valid date`);
+    }
+
+    return value.toISOString();
+  }
+
+  nonEmpty(value, name);
+  if (Number.isNaN(Date.parse(value))) {
+    throw new NexiomValidationError(`${name} must be an ISO 8601 timestamp`);
+  }
+
+  return value;
+}
+
+/** Builds a query string from defined values only. */
+export function queryString(values: Record<string, string | number | undefined>): string {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined) {
+      query.set(key, String(value));
+    }
+  }
+
+  return query.size ? `?${query}` : "";
+}

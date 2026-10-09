@@ -4,27 +4,27 @@ export interface NexiomConnectOptions {
   apiKey: string;
 
   /** API root without a version prefix. Default: https://api-connect.nxiom.com/api. */
-  baseUrl?: string;
+  baseUrl?: string | undefined;
 
   /** Total request deadline, including retries, in milliseconds. Default: 30,000. */
-  timeout?: number;
+  timeout?: number | undefined;
 
-  /** Additional attempts for reads and idempotent email sends only. Default: 2. */
-  maxRetries?: number;
+  /** Additional attempts for reads, idempotent email sends, and cancels only. Default: 2. */
+  maxRetries?: number | undefined;
 
   /** A Fetch-compatible implementation for instrumentation or testing. */
-  fetch?: typeof globalThis.fetch;
+  fetch?: typeof globalThis.fetch | undefined;
 }
 
 export interface RequestOptions {
-  signal?: AbortSignal;
-  timeout?: number;
-  maxRetries?: number;
+  signal?: AbortSignal | undefined;
+  timeout?: number | undefined;
+  maxRetries?: number | undefined;
 }
 
 export interface SendEmailOptions extends RequestOptions {
   /** Reuse a stable key when retrying the same logical email across SDK calls. */
-  idempotencyKey?: string;
+  idempotencyKey?: string | undefined;
 }
 
 export interface ResponseMetadata {

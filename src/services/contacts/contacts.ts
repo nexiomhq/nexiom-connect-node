@@ -1,6 +1,6 @@
 import type { Client } from "../../core/client.js";
 import type { DeleteResponse, RequestOptions } from "../../core/types.js";
-import { integer, nonEmpty, resourceId } from "../../core/validation.js";
+import { integer, nonEmpty, queryString, resourceId } from "../../core/validation.js";
 import { ContactProperties } from "./properties/properties.js";
 import type {
   Contact,
@@ -12,6 +12,9 @@ import type {
 } from "./types.js";
 
 const PATH = "/v1/emails/contacts";
+
+/** The API bounds page offsets; narrow larger collections with filters or search. */
+const MAX_PAGE = 10_000;
 
 function contactBody(params: CreateContactParams | UpdateContactParams) {
   nonEmpty(params?.email, "email");
@@ -34,34 +37,16 @@ export class Contacts {
 
   list(params: ListContactsParams = {}, options?: RequestOptions) {
     if (params.page !== undefined) {
-      integer(params.page, "page", 1, Number.MAX_SAFE_INTEGER);
+      integer(params.page, "page", 1, MAX_PAGE);
     }
     if (params.limit !== undefined) {
       integer(params.limit, "limit", 1, 100);
     }
 
     const { page, limit, search, emailStatus, segmentId, listId } = params;
-    const query = new URLSearchParams();
+    const query = queryString({ page, limit, search, emailStatus, segmentId, listId });
 
-    for (const [key, value] of Object.entries({
-      page,
-      limit,
-      search,
-      emailStatus,
-      segmentId,
-      listId,
-    })) {
-      if (value !== undefined) {
-        query.set(key, String(value));
-      }
-    }
-
-    return this.client.request<ListContactsResponse>(
-      "GET",
-      `${PATH}${query.size ? `?${query}` : ""}`,
-      undefined,
-      options,
-    );
+    return this.client.request<ListContactsResponse>("GET", `${PATH}${query}`, undefined, options);
   }
 
   get(id: string, options?: RequestOptions) {
