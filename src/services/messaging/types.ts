@@ -1,13 +1,13 @@
+/** Messaging channels. New channels are added to this union. */
+export type MessageChannel = "whatsapp";
+
 /** Values for a template's variables, keyed by variable number (`"1"`) or name (`"first_name"`). */
 export type WhatsAppTemplateVariables = Record<string, string>;
 
-export interface SendWhatsAppMessageParams {
-  /** The connected number to send from, in E.164, for example `+213555000111`. */
-  sender: string;
-  /** The recipient, in E.164, for example `+213555123456`. */
-  to: string;
-  /** An approved template of the sender's WhatsApp Business Account (`wat_…`). */
-  templateId: string;
+/** An approved WhatsApp template and the values of its variables. */
+export interface WhatsAppTemplateParams {
+  /** The template's ID (`wat_…`), from the sender's WhatsApp Business Account. */
+  id: string;
   /** Every header and body variable of the template; omit for a template without variables. */
   variables?:
     | {
@@ -16,6 +16,19 @@ export interface SendWhatsAppMessageParams {
       }
     | undefined;
 }
+
+/** A WhatsApp template message from a connected number. */
+export interface SendWhatsAppMessageParams {
+  channel: "whatsapp";
+  /** The connected WhatsApp number to send from, in E.164, for example `+213555000111`. */
+  from: string;
+  /** The recipient, in E.164, for example `+213555123456`. */
+  to: string;
+  template: WhatsAppTemplateParams;
+}
+
+/** A message on any channel; `channel` selects the fields. */
+export type SendMessageParams = SendWhatsAppMessageParams;
 
 /**
  * `accepted` means WhatsApp accepted the message, not that it was delivered. `uncertain` means
@@ -79,3 +92,9 @@ export interface WhatsAppMessageContent {
 export interface WhatsAppMessageDetails extends WhatsAppMessage {
   content: WhatsAppMessageContent | null;
 }
+
+/** A message on any channel; check `channel` to read its channel's fields. */
+export type Message = WhatsAppMessage;
+
+/** A message with its content, on any channel. */
+export type MessageDetails = WhatsAppMessageDetails;

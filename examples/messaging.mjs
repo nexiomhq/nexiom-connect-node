@@ -4,13 +4,16 @@ const nexiomConnect = new NexiomConnect({
   apiKey: process.env.NEXIOM_API_KEY,
 });
 
-const { data, error } = await nexiomConnect.whatsapp.messages.send(
+const { data, error } = await nexiomConnect.messaging.send(
   {
-    sender: "+213555000111",
+    channel: "whatsapp",
+    from: "+213555000111",
     to: "+213555123456",
-    templateId: "wat_your_template_id",
-    variables: {
-      body: { 1: "Amina", 2: "A-1234" },
+    template: {
+      id: "wat_your_template_id",
+      variables: {
+        body: { 1: "Amina", 2: "A-1234" },
+      },
     },
   },
   { idempotencyKey: "order-A-1234-shipped" },

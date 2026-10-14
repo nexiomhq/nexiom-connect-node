@@ -1,15 +1,17 @@
 import type { Client } from "../../core/client.js";
 import { NexiomValidationError } from "../../core/errors.js";
-import type { RequestOptions, SendWhatsAppMessageOptions } from "../../core/types.js";
+import type { RequestOptions, SendMessageOptions } from "../../core/types.js";
 import { nonEmpty, resourceId } from "../../core/validation.js";
 import type {
-  SendWhatsAppMessageParams,
-  WhatsAppMessage,
-  WhatsAppMessageDetails,
+  Message,
+  MessageChannel,
+  MessageDetails,
+  SendMessageParams,
   WhatsAppTemplateVariables,
 } from "./types.js";
 
-const PATH = "/v1/messaging/whatsapp/messages";
+const PATH = "/v1/messaging/messages";
+const CHANNELS: readonly MessageChannel[] = ["whatsapp"];
 const E164 = /^\+[1-9]\d{6,14}$/;
 
 function phoneNumber(value: unknown, name: string): string {
@@ -20,11 +22,15 @@ function phoneNumber(value: unknown, name: string): string {
   return value.trim();
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function variableValues(value: unknown, name: string): WhatsAppTemplateVariables | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isObject(value)) {
     throw new NexiomValidationError(`${name} must be an object of variable values`);
   }
 
@@ -40,29 +46,39 @@ function variableValues(value: unknown, name: string): WhatsAppTemplateVariables
   return value as WhatsAppTemplateVariables;
 }
 
-export class WhatsAppMessages {
+/** Send messages on any messaging channel, and read them back. */
+export class Messaging {
   constructor(private readonly client: Client) {}
 
   /**
-   * Sends an approved template from a connected number. Retries reuse the same idempotency key,
+   * Sends a message on the channel named by `channel`. Retries reuse the same idempotency key,
    * so a message is sent at most once.
    */
-  send(params: SendWhatsAppMessageParams, options: SendWhatsAppMessageOptions = {}) {
-    const sender = phoneNumber(params?.sender, "sender");
-    const to = phoneNumber(params.to, "to");
-    nonEmpty(params.templateId, "templateId");
-
-    if (
-      params.variables !== undefined &&
-      (typeof params.variables !== "object" ||
-        params.variables === null ||
-        Array.isArray(params.variables))
-    ) {
-      throw new NexiomValidationError("variables must be an object with header and body values");
+  send(params: SendMessageParams, options: SendMessageOptions = {}) {
+    if (!isObject(params)) {
+      throw new NexiomValidationError("params must be an object");
     }
 
-    const header = variableValues(params.variables?.header, "variables.header");
-    const body = variableValues(params.variables?.body, "variables.body");
+    if (!CHANNELS.includes(params.channel)) {
+      throw new NexiomValidationError(`channel must be one of: ${CHANNELS.join(", ")}`);
+    }
+
+    const from = phoneNumber(params.from, "from");
+    const to = phoneNumber(params.to, "to");
+
+    if (!isObject(params.template)) {
+      throw new NexiomValidationError("template must be an object with an id and variables");
+    }
+
+    nonEmpty(params.template.id, "template.id");
+
+    const variables = params.template.variables;
+    if (variables !== undefined && !isObject(variables)) {
+      throw new NexiomValidationError("template.variables must be an object with header and body values");
+    }
+
+    const header = variableValues(variables?.header, "template.variables.header");
+    const body = variableValues(variables?.body, "template.variables.body");
 
     const key = options.idempotencyKey ?? globalThis.crypto.randomUUID();
     if (!/^[\x21-\x7e]{1,200}$/.test(key)) {
@@ -72,14 +88,17 @@ export class WhatsAppMessages {
     }
 
     // Explicit allowlist prevents accidental tenant context or unsupported fields on the wire.
-    return this.client.request<WhatsAppMessage>(
+    return this.client.request<Message>(
       "POST",
       PATH,
       {
-        sender,
+        channel: params.channel,
+        from,
         to,
-        templateId: params.templateId,
-        variables: params.variables === undefined ? undefined : { header, body },
+        template: {
+          id: params.template.id,
+          variables: variables === undefined ? undefined : { header, body },
+        },
       },
       options,
       { idempotencyKey: key },
@@ -88,7 +107,7 @@ export class WhatsAppMessages {
 
   /** Fetches one message with its current status and the content the recipient received. */
   get(messageId: string, options?: RequestOptions) {
-    return this.client.request<WhatsAppMessageDetails>(
+    return this.client.request<MessageDetails>(
       "GET",
       `${PATH}/${resourceId(messageId)}`,
       undefined,

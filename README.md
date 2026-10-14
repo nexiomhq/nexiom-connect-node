@@ -261,23 +261,26 @@ Use a subdomain such as `mail.example.com`; root domains are not accepted. `open
 
 `list()` accepts `page` (up to 10,000), `limit` (1–100, default 50), `status`, and `search`, and returns `{ items, total, page, limit }`. Deleting a domain affects future sends that use it.
 
-## WhatsApp
+## Messaging
 
-Send an approved WhatsApp template from a connected number. The API key needs the `whatsapp.send` or `whatsapp.full_access` permission.
+Send messages on a messaging channel with one method; `channel` selects the fields, and TypeScript checks them for that channel. WhatsApp is the first channel. The API key needs the `whatsapp.send` or `whatsapp.full_access` permission to send WhatsApp messages.
 
 | Method | Description |
 | --- | --- |
-| `messages.send(params, options?)` | Send a template message to one recipient |
-| `messages.get(messageId)` | Get a message with its status, cost, and content |
+| `send(params, options?)` | Send a message to one recipient |
+| `get(messageId)` | Get a message with its status, cost, and content |
 
 ```ts
-const { data, error } = await nexiomConnect.whatsapp.messages.send(
+const { data, error } = await nexiomConnect.messaging.send(
   {
-    sender: "+213555000111",
+    channel: "whatsapp",
+    from: "+213555000111",
     to: "+213555123456",
-    templateId: "wat_your_template_id",
-    variables: {
-      body: { 1: "Amina", 2: "A-1234" },
+    template: {
+      id: "wat_your_template_id",
+      variables: {
+        body: { 1: "Amina", 2: "A-1234" },
+      },
     },
   },
   { idempotencyKey: "order-A-1234-shipped" },
@@ -287,14 +290,14 @@ if (error) {
   throw error;
 }
 
-console.log(data.id, data.status);
+console.log(data.id, data.channel, data.status);
 ```
 
-`sender` is the phone number of a connected WhatsApp number and `to` the recipient, both in E.164 format. `variables.header` and `variables.body` give a string for every variable of the template, keyed by its number (`"1"`) or name (`"first_name"`). Omit `variables` for a template without variables.
+For WhatsApp, `from` is the phone number of a connected WhatsApp number and `to` the recipient, both in E.164 format. `template.id` is an approved template, and `template.variables.header` and `template.variables.body` give a string for every variable of the template, keyed by its number (`"1"`) or name (`"first_name"`). Omit `variables` for a template without variables.
 
 Every send carries an idempotency key; the SDK generates one when you don't pass `idempotencyKey`, and returns it in `response.idempotencyKey`. Sends are retried with the same key, so a message is sent at most once. A retry with a key already used returns the original message as it is now.
 
-A sent message usually has the status `accepted`: WhatsApp accepted it, which is not delivery yet. `uncertain` means WhatsApp did not confirm it; it is never resent automatically. Follow the status with `messages.get(messageId)` or the `whatsapp.message.*` webhooks.
+A sent WhatsApp message usually has the status `accepted`: WhatsApp accepted it, which is not delivery yet. `uncertain` means WhatsApp did not confirm it; it is never resent automatically. Follow the status with `messaging.get(messageId)` or the `whatsapp.message.*` webhooks.
 
 ## Webhooks
 
@@ -344,7 +347,7 @@ The default base URL is `https://api-connect.nxiom.com/api`. Custom URLs exclude
 
 Configure `timeout` (default 30,000 ms), `maxRetries` (default 2), or a Fetch-compatible `fetch` implementation when creating the client. Each method also accepts `{ signal, timeout, maxRetries }` as its final argument.
 
-The timeout covers the entire request, including retries. Reads, email and WhatsApp sends, cancels, and domain verification retry network errors and HTTP 408, 429, 500, 502, 503, and 504, honoring `Retry-After`. When the wait would outlast the timeout, the SDK returns that API error at once. Reschedules, contact and property mutations, and domain creation and deletion are not automatically retried. Custom fetch implementations must honor `AbortSignal` and standard Fetch redirect behavior.
+The timeout covers the entire request, including retries. Reads, email and message sends, cancels, and domain verification retry network errors and HTTP 408, 429, 500, 502, 503, and 504, honoring `Retry-After`. When the wait would outlast the timeout, the SDK returns that API error at once. Reschedules, contact and property mutations, and domain creation and deletion are not automatically retried. Custom fetch implementations must honor `AbortSignal` and standard Fetch redirect behavior.
 
 ## Errors
 
@@ -359,7 +362,7 @@ Error kinds are `api`, `network`, `timeout`, `aborted`, and `protocol`. Invalid 
 - [Create a contact property](./examples/contact-properties.mjs)
 - [Add a sending domain](./examples/domains.mjs)
 - [List published templates](./examples/templates.mjs)
-- [Send a WhatsApp message](./examples/whatsapp.mjs)
+- [Send a WhatsApp message](./examples/messaging.mjs)
 - [Verify webhooks with Express](./examples/webhooks.mjs)
 
 ## Development

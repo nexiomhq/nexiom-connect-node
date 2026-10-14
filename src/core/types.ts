@@ -27,7 +27,7 @@ export interface SendEmailOptions extends RequestOptions {
   idempotencyKey?: string | undefined;
 }
 
-export interface SendWhatsAppMessageOptions extends RequestOptions {
+export interface SendMessageOptions extends RequestOptions {
   /** Reuse a stable key when retrying the same logical message across SDK calls. */
   idempotencyKey?: string | undefined;
 }

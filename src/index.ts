@@ -4,7 +4,7 @@ import { Emails } from "./services/emails/emails.js";
 import { Contacts } from "./services/contacts/contacts.js";
 import { Templates } from "./services/templates/templates.js";
 import { Domains } from "./services/domains/domains.js";
-import { WhatsApp } from "./services/whatsapp/whatsapp.js";
+import { Messaging } from "./services/messaging/messaging.js";
 import { Webhooks } from "./services/webhooks/webhooks.js";
 
 export class NexiomConnect {
@@ -12,7 +12,7 @@ export class NexiomConnect {
   readonly contacts: Contacts;
   readonly templates: Templates;
   readonly domains: Domains;
-  readonly whatsapp: WhatsApp;
+  readonly messaging: Messaging;
   readonly webhooks: Webhooks;
 
   constructor(options: NexiomConnectOptions) {
@@ -21,7 +21,7 @@ export class NexiomConnect {
     this.contacts = new Contacts(client);
     this.templates = new Templates(client);
     this.domains = new Domains(client);
-    this.whatsapp = new WhatsApp(client);
+    this.messaging = new Messaging(client);
     this.webhooks = new Webhooks();
   }
 }
@@ -39,7 +39,7 @@ export type {
   NexiomResult,
   RequestOptions,
   SendEmailOptions,
-  SendWhatsAppMessageOptions,
+  SendMessageOptions,
   ResponseMetadata,
   DeleteResponse,
 } from "./core/types.js";
@@ -112,7 +112,12 @@ export type {
 } from "./services/domains/types.js";
 
 export type {
+  MessageChannel,
+  SendMessageParams,
   SendWhatsAppMessageParams,
+  WhatsAppTemplateParams,
+  Message,
+  MessageDetails,
   WhatsAppMessage,
   WhatsAppMessageDetails,
   WhatsAppMessageContent,
@@ -120,7 +125,7 @@ export type {
   WhatsAppMessageStatus,
   WhatsAppTemplateCategory,
   WhatsAppTemplateVariables,
-} from "./services/whatsapp/types.js";
+} from "./services/messaging/types.js";
 
 export type {
   WebhookEvent,
