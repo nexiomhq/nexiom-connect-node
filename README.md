@@ -298,17 +298,17 @@ A sent message usually has the status `accepted`: WhatsApp accepted it, which is
 
 ## Webhooks
 
-`webhooks.constructEvent(payload, headers, secret, options?)` checks a webhook request's signature and timestamp, then returns the event. It makes no network request.
+`webhooks.constructEventAsync(payload, headers, secret, options?)` checks a webhook request's signature and timestamp, then resolves to the event. It makes no network request: the HMAC-SHA256 signature is verified by the runtime's Web Crypto API (`crypto.subtle`), which also compares it in constant time.
 
 ```ts
 import express from "express";
 import { NexiomWebhookVerificationError } from "@nexiom/connect";
 
-app.post("/webhooks/nexiom", express.raw({ type: "application/json" }), (request, response) => {
+app.post("/webhooks/nexiom", express.raw({ type: "application/json" }), async (request, response) => {
   let event;
 
   try {
-    event = nexiomConnect.webhooks.constructEvent(
+    event = await nexiomConnect.webhooks.constructEventAsync(
       request.body,
       request.headers,
       process.env.NEXIOM_WEBHOOK_SECRET,
@@ -336,7 +336,7 @@ app.post("/webhooks/nexiom", express.raw({ type: "application/json" }), (request
 
 The result is a `WebhookEvent`: checking `event.type` narrows `event.data` to that event's fields. Event types added after your SDK version are still verified and returned, so keep a default branch.
 
-A request that fails verification throws `NexiomWebhookVerificationError`, whose `reason` is `missing_headers`, `invalid_timestamp`, `timestamp_out_of_tolerance`, `invalid_signature`, or `invalid_payload`. Respond `400` and do not process it. Verification uses no runtime-specific APIs, so it also works in Bun, Deno, and edge runtimes.
+A request that fails verification rejects with `NexiomWebhookVerificationError`, whose `reason` is `missing_headers`, `invalid_timestamp`, `timestamp_out_of_tolerance`, `invalid_signature`, or `invalid_payload`. Respond `400` and do not process it. Web Crypto is available in Node.js, Bun, Deno, and edge runtimes such as Cloudflare Workers.
 
 ## Request options
 

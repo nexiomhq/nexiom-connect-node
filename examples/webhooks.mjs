@@ -8,11 +8,11 @@ const nexiomConnect = new NexiomConnect({
 const app = express();
 
 // The raw body: parsed and re-serialized JSON no longer matches the signature.
-app.post("/webhooks/nexiom", express.raw({ type: "application/json" }), (request, response) => {
+app.post("/webhooks/nexiom", express.raw({ type: "application/json" }), async (request, response) => {
   let event;
 
   try {
-    event = nexiomConnect.webhooks.constructEvent(
+    event = await nexiomConnect.webhooks.constructEventAsync(
       request.body,
       request.headers,
       process.env.NEXIOM_WEBHOOK_SECRET,

@@ -21,7 +21,7 @@ export class NexiomValidationError extends Error {
   readonly name = "NexiomValidationError";
 }
 
-/** Why `webhooks.constructEvent` refused a request. */
+/** Why `webhooks.constructEventAsync` refused a request. */
 export type WebhookVerificationReason =
   | "missing_headers"
   | "invalid_timestamp"

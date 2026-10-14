@@ -2,7 +2,7 @@
 
 ## 0.4.0 — Unreleased
 
-- Add `webhooks.constructEvent(payload, headers, secret, { tolerance? })`. It verifies a webhook request's HMAC-SHA256 signature and timestamp (300 seconds by default) and returns a typed `WebhookEvent`, narrowed by `event.type`. Failures throw `NexiomWebhookVerificationError` with a `reason`. Verification is synchronous and uses no runtime-specific APIs.
+- Add `webhooks.constructEventAsync(payload, headers, secret, { tolerance? })`. It verifies a webhook request's HMAC-SHA256 signature with the runtime's Web Crypto API and its timestamp (300 seconds by default), and resolves to a typed `WebhookEvent`, narrowed by `event.type`. Failures reject with `NexiomWebhookVerificationError` and a `reason`.
 - Add `whatsapp.messages.send({ sender, to, templateId, variables? }, { idempotencyKey? })` to send an approved WhatsApp template from a connected number (named by its phone number), and `whatsapp.messages.get(messageId)`. Sends always carry an idempotency key and retry with it; reads retry.
 - Export the WhatsApp message and webhook event types.
 

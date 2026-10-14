@@ -36,42 +36,42 @@ function sign(payload, { timestamp = now(), key = secret } = {}) {
 
 const webhooks = new NexiomConnect({ apiKey: "nc_test_key" }).webhooks;
 
-function reasonOf(callback) {
+async function reasonOf(callback) {
   try {
-    callback();
+    await callback();
   } catch (error) {
     assert.ok(error instanceof NexiomWebhookVerificationError, `unexpected ${error}`);
     assert.equal(error.name, "NexiomWebhookVerificationError");
     return error.reason;
   }
 
-  assert.fail("constructEvent accepted a request it should refuse");
+  assert.fail("constructEventAsync accepted a request it should refuse");
 }
 
-test("the client exposes webhooks.constructEvent only, in ESM and CommonJS", () => {
+test("the client exposes webhooks.constructEventAsync only, in ESM and CommonJS", () => {
   assert.deepEqual(Object.getOwnPropertyNames(Object.getPrototypeOf(webhooks)), [
     "constructor",
-    "constructEvent",
+    "constructEventAsync",
   ]);
 
   const cjs = createRequire(import.meta.url)("../dist/index.cjs");
   assert.equal(typeof cjs.NexiomWebhookVerificationError, "function");
-  assert.equal(typeof new cjs.NexiomConnect({ apiKey: "nc_test_key" }).webhooks.constructEvent, "function");
+  assert.equal(typeof new cjs.NexiomConnect({ apiKey: "nc_test_key" }).webhooks.constructEventAsync, "function");
 });
 
-test("a signed request returns its event, from a string or a Buffer body", () => {
+test("a signed request returns its event, from a string or a Buffer body", async () => {
   const payload = JSON.stringify(event);
   const headers = sign(payload);
 
-  assert.deepEqual(webhooks.constructEvent(payload, headers, secret), event);
-  assert.deepEqual(webhooks.constructEvent(Buffer.from(payload), headers, secret), event);
+  assert.deepEqual(await webhooks.constructEventAsync(payload, headers, secret), event);
+  assert.deepEqual(await webhooks.constructEventAsync(Buffer.from(payload), headers, secret), event);
   assert.deepEqual(
-    webhooks.constructEvent(new TextEncoder().encode(payload), headers, secret),
+    await webhooks.constructEventAsync(new TextEncoder().encode(payload), headers, secret),
     event,
   );
 });
 
-test("headers are read case-insensitively from Headers, Node headers, and plain objects", () => {
+test("headers are read case-insensitively from Headers, Node headers, and plain objects", async () => {
   const payload = JSON.stringify(event);
   const signed = sign(payload);
 
@@ -91,33 +91,33 @@ test("headers are read case-insensitively from Headers, Node headers, and plain 
   };
 
   for (const headers of [fetchHeaders, upperCase, lists]) {
-    assert.equal(webhooks.constructEvent(payload, headers, secret).id, event.id);
+    assert.equal((await webhooks.constructEventAsync(payload, headers, secret)).id, event.id);
   }
 });
 
-test("missing or malformed signature headers are refused", () => {
+test("missing or malformed signature headers are refused", async () => {
   const payload = JSON.stringify(event);
   const signed = sign(payload);
 
   assert.equal(
-    reasonOf(() => webhooks.constructEvent(payload, {}, secret)),
+    await reasonOf(() => webhooks.constructEventAsync(payload, {}, secret)),
     "missing_headers",
   );
   assert.equal(
-    reasonOf(() =>
-      webhooks.constructEvent(payload, { "x-nexiom-timestamp": signed["x-nexiom-timestamp"] }, secret),
+    await reasonOf(() =>
+      webhooks.constructEventAsync(payload, { "x-nexiom-timestamp": signed["x-nexiom-timestamp"] }, secret),
     ),
     "missing_headers",
   );
   assert.equal(
-    reasonOf(() => webhooks.constructEvent(payload, { ...signed, "x-nexiom-signature": "  " }, secret)),
+    await reasonOf(() => webhooks.constructEventAsync(payload, { ...signed, "x-nexiom-signature": "  " }, secret)),
     "missing_headers",
   );
 
   for (const timestamp of ["1e9", "-10", "12.5", "soon", "99999999999999999999"]) {
     assert.equal(
-      reasonOf(() =>
-        webhooks.constructEvent(payload, { ...signed, "x-nexiom-timestamp": timestamp }, secret),
+      await reasonOf(() =>
+        webhooks.constructEventAsync(payload, { ...signed, "x-nexiom-timestamp": timestamp }, secret),
       ),
       "invalid_timestamp",
       timestamp,
@@ -125,50 +125,53 @@ test("missing or malformed signature headers are refused", () => {
   }
 });
 
-test("timestamps outside the tolerance are refused in both directions", () => {
+test("timestamps outside the tolerance are refused in both directions", async () => {
   const payload = JSON.stringify(event);
 
   for (const offset of [-301, 301]) {
     const headers = sign(payload, { timestamp: now() + offset });
     assert.equal(
-      reasonOf(() => webhooks.constructEvent(payload, headers, secret)),
+      await reasonOf(() => webhooks.constructEventAsync(payload, headers, secret)),
       "timestamp_out_of_tolerance",
     );
   }
 
   const old = sign(payload, { timestamp: now() - 280 });
-  assert.equal(webhooks.constructEvent(payload, old, secret).id, event.id);
+  assert.equal((await webhooks.constructEventAsync(payload, old, secret)).id, event.id);
 
   const older = sign(payload, { timestamp: now() - 500 });
-  assert.equal(webhooks.constructEvent(payload, older, secret, { tolerance: 600 }).id, event.id);
   assert.equal(
-    reasonOf(() => webhooks.constructEvent(payload, older, secret, { tolerance: 60 })),
+    (await webhooks.constructEventAsync(payload, older, secret, { tolerance: 600 })).id,
+    event.id,
+  );
+  assert.equal(
+    await reasonOf(() => webhooks.constructEventAsync(payload, older, secret, { tolerance: 60 })),
     "timestamp_out_of_tolerance",
   );
 });
 
-test("a changed body, timestamp, secret, or signature is refused", () => {
+test("a changed body, timestamp, secret, or signature is refused", async () => {
   const payload = JSON.stringify(event);
   const headers = sign(payload);
 
   // Re-serialized JSON no longer matches the signed bytes.
   const reformatted = JSON.stringify(event, null, 2);
   const cases = [
-    () => webhooks.constructEvent(reformatted, headers, secret),
-    () => webhooks.constructEvent(payload.replace("delivered", "bounced"), headers, secret),
+    () => webhooks.constructEventAsync(reformatted, headers, secret),
+    () => webhooks.constructEventAsync(payload.replace("delivered", "bounced"), headers, secret),
     () =>
-      webhooks.constructEvent(
+      webhooks.constructEventAsync(
         payload,
         { ...headers, "x-nexiom-timestamp": String(Number(headers["x-nexiom-timestamp"]) - 1) },
         secret,
       ),
-    () => webhooks.constructEvent(payload, headers, "whsec_another_secret"),
+    () => webhooks.constructEventAsync(payload, headers, "whsec_another_secret"),
     // The prefix is part of the key.
-    () => webhooks.constructEvent(payload, headers, secret.replace("whsec_", "")),
-    () => webhooks.constructEvent(payload, { ...headers, "x-nexiom-signature": "a".repeat(64) }, secret),
-    () => webhooks.constructEvent(payload, { ...headers, "x-nexiom-signature": "not-hex" }, secret),
+    () => webhooks.constructEventAsync(payload, headers, secret.replace("whsec_", "")),
+    () => webhooks.constructEventAsync(payload, { ...headers, "x-nexiom-signature": "a".repeat(64) }, secret),
+    () => webhooks.constructEventAsync(payload, { ...headers, "x-nexiom-signature": "not-hex" }, secret),
     () =>
-      webhooks.constructEvent(
+      webhooks.constructEventAsync(
         payload,
         { ...headers, "x-nexiom-signature": headers["x-nexiom-signature"].slice(0, 62) },
         secret,
@@ -176,11 +179,11 @@ test("a changed body, timestamp, secret, or signature is refused", () => {
   ];
 
   for (const verify of cases) {
-    assert.equal(reasonOf(verify), "invalid_signature");
+    assert.equal(await reasonOf(verify), "invalid_signature");
   }
 });
 
-test("a correctly signed body that is not an event envelope is refused", () => {
+test("a correctly signed body that is not an event envelope is refused", async () => {
   const bodies = [
     "not json",
     "[]",
@@ -192,7 +195,7 @@ test("a correctly signed body that is not an event envelope is refused", () => {
 
   for (const payload of bodies) {
     assert.equal(
-      reasonOf(() => webhooks.constructEvent(payload, sign(payload), secret)),
+      await reasonOf(() => webhooks.constructEventAsync(payload, sign(payload), secret)),
       "invalid_payload",
       payload,
     );
@@ -204,8 +207,8 @@ test("a correctly signed body that is not an event envelope is refused", () => {
     .update(invalidUtf8)
     .digest("hex");
   assert.equal(
-    reasonOf(() =>
-      webhooks.constructEvent(
+    await reasonOf(() =>
+      webhooks.constructEventAsync(
         invalidUtf8,
         { "x-nexiom-timestamp": String(now()), "x-nexiom-signature": signature },
         secret,
@@ -215,27 +218,30 @@ test("a correctly signed body that is not an event envelope is refused", () => {
   );
 });
 
-test("unknown event types are verified and returned", () => {
+test("unknown event types are verified and returned", async () => {
   const payload = JSON.stringify({ ...event, type: "email.future_event" });
-  assert.equal(webhooks.constructEvent(payload, sign(payload), secret).type, "email.future_event");
+  assert.equal(
+    (await webhooks.constructEventAsync(payload, sign(payload), secret)).type,
+    "email.future_event",
+  );
 });
 
-test("invalid arguments are programming errors, not verification failures", () => {
+test("invalid arguments are programming errors, not verification failures", async () => {
   const payload = JSON.stringify(event);
   const headers = sign(payload);
 
   for (const call of [
-    () => webhooks.constructEvent(event, headers, secret),
-    () => webhooks.constructEvent(payload, null, secret),
-    () => webhooks.constructEvent(payload, headers, ""),
-    () => webhooks.constructEvent(payload, headers, secret, { tolerance: 0 }),
-    () => webhooks.constructEvent(payload, headers, secret, { tolerance: 1.5 }),
+    () => webhooks.constructEventAsync(event, headers, secret),
+    () => webhooks.constructEventAsync(payload, null, secret),
+    () => webhooks.constructEventAsync(payload, headers, ""),
+    () => webhooks.constructEventAsync(payload, headers, secret, { tolerance: 0 }),
+    () => webhooks.constructEventAsync(payload, headers, secret, { tolerance: 1.5 }),
   ]) {
-    assert.throws(call, NexiomValidationError);
+    await assert.rejects(call, NexiomValidationError);
   }
 });
 
-test("signatures match Node's HMAC-SHA256 for every block boundary and key length", () => {
+test("Web Crypto verifies signatures made with Node's HMAC for any body and key length", async () => {
   const timestamp = now();
 
   for (const length of [0, 1, 46, 47, 48, 54, 55, 56, 63, 64, 65, 119, 120, 127, 128, 1000, 70_000]) {
@@ -244,10 +250,17 @@ test("signatures match Node's HMAC-SHA256 for every block boundary and key lengt
       const body = JSON.stringify({ ...event, padding: "x".repeat(length) });
       const headers = sign(body, { timestamp, key });
 
-      assert.equal(webhooks.constructEvent(body, headers, key).id, event.id, `${length}/${keyLength}`);
+      assert.equal(
+        (await webhooks.constructEventAsync(body, headers, key)).id,
+        event.id,
+        `${length}/${keyLength}`,
+      );
     }
   }
 
   const unicode = JSON.stringify({ ...event, data: { ...event.data, recipient: "مرحبا 👋" } });
-  assert.equal(webhooks.constructEvent(unicode, sign(unicode), secret).data.recipient, "مرحبا 👋");
+  assert.equal(
+    (await webhooks.constructEventAsync(unicode, sign(unicode), secret)).data.recipient,
+    "مرحبا 👋",
+  );
 });

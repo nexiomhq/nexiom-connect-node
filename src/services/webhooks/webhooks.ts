@@ -1,5 +1,4 @@
 import { NexiomValidationError, NexiomWebhookVerificationError } from "../../core/errors.js";
-import { constantTimeEqual, hexBytes, hmacSha256 } from "../../core/hmac.js";
 import { integer, nonEmpty } from "../../core/validation.js";
 import type {
   ConstructEventOptions,
@@ -30,31 +29,53 @@ function headerValue(headers: WebhookHeaders, name: string): string | null {
   return null;
 }
 
-function bytesOf(payload: WebhookPayload): Uint8Array {
-  return typeof payload === "string" ? new TextEncoder().encode(payload) : payload;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Bytes of a hexadecimal signature, or `null` when it is not 64 hexadecimal characters. */
+function signatureBytes(signature: string): Uint8Array<ArrayBuffer> | null {
+  if (!/^[0-9a-f]{64}$/i.test(signature)) {
+    return null;
+  }
+
+  const bytes = new Uint8Array(32);
+
+  for (let index = 0; index < bytes.length; index++) {
+    bytes[index] = Number.parseInt(signature.slice(index * 2, index * 2 + 2), 16);
+  }
+
+  return bytes;
+}
+
+/** The signed content: the timestamp, a period, and the exact body bytes. */
+function signedContent(timestamp: string, body: Uint8Array): Uint8Array<ArrayBuffer> {
+  const prefix = new TextEncoder().encode(`${timestamp}.`);
+  const content = new Uint8Array(prefix.length + body.length);
+  content.set(prefix);
+  content.set(body, prefix.length);
+
+  return content;
 }
 
 function fail(reason: NexiomWebhookVerificationError["reason"], message: string): never {
   throw new NexiomWebhookVerificationError(message, reason);
 }
 
-/** Verifies webhook requests. Makes no network request. */
+/** Verifies webhook requests with the runtime's Web Crypto API. Makes no network request. */
 export class Webhooks {
   /**
-   * Checks a webhook request's signature and timestamp, then returns its event. Pass the raw
-   * body exactly as received, the request headers, and the endpoint's signing secret (`whsec_…`).
-   * Throws `NexiomWebhookVerificationError` when the request is not genuine or not current.
+   * Checks a webhook request's signature and timestamp, then resolves to its event. Pass the
+   * raw body exactly as received, the request headers, and the endpoint's signing secret
+   * (`whsec_…`). Rejects with `NexiomWebhookVerificationError` when the request is not genuine
+   * or not current.
    */
-  constructEvent(
+  async constructEventAsync(
     payload: WebhookPayload,
     headers: WebhookHeaders,
     secret: string,
     options: ConstructEventOptions = {},
-  ): WebhookEvent {
+  ): Promise<WebhookEvent> {
     if (typeof payload !== "string" && !(payload instanceof Uint8Array)) {
       throw new NexiomValidationError(
         "payload must be the raw request body as a string or Buffer, not parsed JSON",
@@ -70,6 +91,11 @@ export class Webhooks {
       1,
       Number.MAX_SAFE_INTEGER,
     );
+
+    const subtle = globalThis.crypto?.subtle;
+    if (!subtle) {
+      throw new NexiomValidationError("Webhook verification needs the Web Crypto API");
+    }
 
     const timestamp = headerValue(headers, TIMESTAMP_HEADER)?.trim();
     const signature = headerValue(headers, SIGNATURE_HEADER)?.trim();
@@ -87,16 +113,22 @@ export class Webhooks {
       fail("timestamp_out_of_tolerance", "The webhook timestamp is outside the allowed tolerance");
     }
 
-    const encoder = new TextEncoder();
-    const body = bytesOf(payload);
-    const signed = new Uint8Array(timestamp.length + 1 + body.length);
-    signed.set(encoder.encode(`${timestamp}.`));
-    signed.set(body, timestamp.length + 1);
+    const body = typeof payload === "string" ? new TextEncoder().encode(payload) : payload;
+    const received = signatureBytes(signature);
 
-    const expected = hmacSha256(encoder.encode(secret), signed);
-    const received = hexBytes(signature);
+    // HMAC-SHA256 and its constant-time comparison are done by the runtime's Web Crypto.
+    const key = await subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"],
+    );
+    const valid =
+      received !== null &&
+      (await subtle.verify("HMAC", key, received, signedContent(timestamp, body)));
 
-    if (!received || !constantTimeEqual(received, expected)) {
+    if (!valid) {
       fail("invalid_signature", "The webhook signature does not match the payload and secret");
     }
 

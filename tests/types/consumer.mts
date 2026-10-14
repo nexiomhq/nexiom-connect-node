@@ -151,7 +151,9 @@ if (whatsapp.data) {
 sdk.whatsapp.messages.send({ senderId: "was_1", to: "+213555123456", templateId: "wat_1" });
 // @ts-expect-error variable values are strings
 sdk.whatsapp.messages.send({ sender: "+1", to: "+2", templateId: "t", variables: { body: { "1": 2 } } });
-const event: WebhookEvent = sdk.webhooks.constructEvent("{}", new Headers(), "whsec_test", { tolerance: 600 });
+const event: WebhookEvent = await sdk.webhooks.constructEventAsync("{}", new Headers(), "whsec_test", {
+  tolerance: 600,
+});
 switch (event.type) {
   case "email.scheduled": {
     const at: string = event.data.scheduled_at;
@@ -174,9 +176,9 @@ switch (event.type) {
     break;
   }
 }
-sdk.webhooks.constructEvent(new TextEncoder().encode("{}"), { "x-nexiom-signature": ["a"] }, "whsec_test");
+await sdk.webhooks.constructEventAsync(new TextEncoder().encode("{}"), { "x-nexiom-signature": ["a"] }, "whsec_test");
 try {
-  sdk.webhooks.constructEvent("{}", {}, "whsec_test");
+  await sdk.webhooks.constructEventAsync("{}", {}, "whsec_test");
 } catch (error) {
   if (error instanceof NexiomWebhookVerificationError) {
     const reason:
@@ -188,3 +190,5 @@ try {
     void reason;
   }
 }
+// @ts-expect-error verification is asynchronous; there is no synchronous constructEvent
+sdk.webhooks.constructEvent;
