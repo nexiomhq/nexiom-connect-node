@@ -11,6 +11,10 @@ import {
   type Template,
   type TemplateVariable,
   type TemplateVersion,
+  type WebhookEvent,
+  type WhatsAppMessage,
+  type WhatsAppMessageDetails,
+  NexiomWebhookVerificationError,
 } from "@nexiom/connect";
 const sdk = new NexiomConnect({ apiKey: "nc_test" });
 const result: NexiomResult<SendEmailResponse> = await sdk.emails.send({
@@ -131,3 +135,56 @@ sdk.emails.suppressions.create;
 // @ts-expect-error templates are read-only
 sdk.templates.create;
 void missingContent;
+const whatsapp: NexiomResult<WhatsAppMessage> = await sdk.whatsapp.messages.send(
+  { sender: "+213555000111", to: "+213555123456", templateId: "wat_1", variables: { body: { "1": "Ada" } } },
+  { idempotencyKey: "order-1" },
+);
+if (whatsapp.data) {
+  const status: "sending" | "accepted" | "sent" | "delivered" | "read" | "failed" | "uncertain" =
+    whatsapp.data.status;
+  const read: NexiomResult<WhatsAppMessageDetails> = await sdk.whatsapp.messages.get(whatsapp.data.id);
+  const segments = read.data?.content?.body ?? [];
+  void status;
+  void segments;
+}
+// @ts-expect-error the sender is named by phone number, not by ID
+sdk.whatsapp.messages.send({ senderId: "was_1", to: "+213555123456", templateId: "wat_1" });
+// @ts-expect-error variable values are strings
+sdk.whatsapp.messages.send({ sender: "+1", to: "+2", templateId: "t", variables: { body: { "1": 2 } } });
+const event: WebhookEvent = sdk.webhooks.constructEvent("{}", new Headers(), "whsec_test", { tolerance: 600 });
+switch (event.type) {
+  case "email.scheduled": {
+    const at: string = event.data.scheduled_at;
+    void at;
+    break;
+  }
+  case "contact.unsubscribed": {
+    const email: string | null = event.data.email;
+    void email;
+    break;
+  }
+  case "whatsapp.message.failed": {
+    const code: string = event.data.failure_code;
+    void code;
+    break;
+  }
+  case "whatsapp.message.read": {
+    // @ts-expect-error only failed WhatsApp events carry a failure code
+    void event.data.failure_code;
+    break;
+  }
+}
+sdk.webhooks.constructEvent(new TextEncoder().encode("{}"), { "x-nexiom-signature": ["a"] }, "whsec_test");
+try {
+  sdk.webhooks.constructEvent("{}", {}, "whsec_test");
+} catch (error) {
+  if (error instanceof NexiomWebhookVerificationError) {
+    const reason:
+      | "missing_headers"
+      | "invalid_timestamp"
+      | "timestamp_out_of_tolerance"
+      | "invalid_signature"
+      | "invalid_payload" = error.reason;
+    void reason;
+  }
+}

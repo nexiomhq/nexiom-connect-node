@@ -9,7 +9,7 @@ export interface NexiomConnectOptions {
   /** Total request deadline, including retries, in milliseconds. Default: 30,000. */
   timeout?: number | undefined;
 
-  /** Additional attempts for reads, idempotent email sends, cancels, and domain verification only. Default: 2. */
+  /** Additional attempts for reads, idempotent sends, cancels, and domain verification only. Default: 2. */
   maxRetries?: number | undefined;
 
   /** A Fetch-compatible implementation for instrumentation or testing. */
@@ -24,6 +24,11 @@ export interface RequestOptions {
 
 export interface SendEmailOptions extends RequestOptions {
   /** Reuse a stable key when retrying the same logical email across SDK calls. */
+  idempotencyKey?: string | undefined;
+}
+
+export interface SendWhatsAppMessageOptions extends RequestOptions {
+  /** Reuse a stable key when retrying the same logical message across SDK calls. */
   idempotencyKey?: string | undefined;
 }
 

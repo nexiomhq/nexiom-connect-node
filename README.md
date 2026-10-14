@@ -261,19 +261,96 @@ Use a subdomain such as `mail.example.com`; root domains are not accepted. `open
 
 `list()` accepts `page` (up to 10,000), `limit` (1–100, default 50), `status`, and `search`, and returns `{ items, total, page, limit }`. Deleting a domain affects future sends that use it.
 
+## WhatsApp
+
+Send an approved WhatsApp template from a connected number. The API key needs the `whatsapp.send` or `whatsapp.full_access` permission.
+
+| Method | Description |
+| --- | --- |
+| `messages.send(params, options?)` | Send a template message to one recipient |
+| `messages.get(messageId)` | Get a message with its status, cost, and content |
+
+```ts
+const { data, error } = await nexiomConnect.whatsapp.messages.send(
+  {
+    sender: "+213555000111",
+    to: "+213555123456",
+    templateId: "wat_your_template_id",
+    variables: {
+      body: { 1: "Amina", 2: "A-1234" },
+    },
+  },
+  { idempotencyKey: "order-A-1234-shipped" },
+);
+
+if (error) {
+  throw error;
+}
+
+console.log(data.id, data.status);
+```
+
+`sender` is the phone number of a connected WhatsApp number and `to` the recipient, both in E.164 format. `variables.header` and `variables.body` give a string for every variable of the template, keyed by its number (`"1"`) or name (`"first_name"`). Omit `variables` for a template without variables.
+
+Every send carries an idempotency key; the SDK generates one when you don't pass `idempotencyKey`, and returns it in `response.idempotencyKey`. Sends are retried with the same key, so a message is sent at most once. A retry with a key already used returns the original message as it is now.
+
+A sent message usually has the status `accepted`: WhatsApp accepted it, which is not delivery yet. `uncertain` means WhatsApp did not confirm it; it is never resent automatically. Follow the status with `messages.get(messageId)` or the `whatsapp.message.*` webhooks.
+
+## Webhooks
+
+`webhooks.constructEvent(payload, headers, secret, options?)` checks a webhook request's signature and timestamp, then returns the event. It makes no network request.
+
+```ts
+import express from "express";
+import { NexiomWebhookVerificationError } from "@nexiom/connect";
+
+app.post("/webhooks/nexiom", express.raw({ type: "application/json" }), (request, response) => {
+  let event;
+
+  try {
+    event = nexiomConnect.webhooks.constructEvent(
+      request.body,
+      request.headers,
+      process.env.NEXIOM_WEBHOOK_SECRET,
+    );
+  } catch (error) {
+    if (error instanceof NexiomWebhookVerificationError) {
+      return response.status(400).send(error.reason);
+    }
+
+    throw error;
+  }
+
+  if (event.type === "email.bounced") {
+    console.log(event.data.recipient);
+  }
+
+  response.sendStatus(204);
+});
+```
+
+- `payload` is the raw request body as a string, Buffer, or `Uint8Array`, exactly as received. Parsed and re-serialized JSON does not match the signature.
+- `headers` accepts Fetch API `Headers`, Node's `request.headers`, or a plain object; names are case-insensitive.
+- `secret` is the endpoint's signing secret, starting with `whsec_`.
+- `options.tolerance` is the allowed clock difference in seconds (default 300).
+
+The result is a `WebhookEvent`: checking `event.type` narrows `event.data` to that event's fields. Event types added after your SDK version are still verified and returned, so keep a default branch.
+
+A request that fails verification throws `NexiomWebhookVerificationError`, whose `reason` is `missing_headers`, `invalid_timestamp`, `timestamp_out_of_tolerance`, `invalid_signature`, or `invalid_payload`. Respond `400` and do not process it. Verification uses no runtime-specific APIs, so it also works in Bun, Deno, and edge runtimes.
+
 ## Request options
 
 The default base URL is `https://api-connect.nxiom.com/api`. Custom URLs exclude `/v1` and use HTTPS, except for local development on loopback hosts.
 
 Configure `timeout` (default 30,000 ms), `maxRetries` (default 2), or a Fetch-compatible `fetch` implementation when creating the client. Each method also accepts `{ signal, timeout, maxRetries }` as its final argument.
 
-The timeout covers the entire request, including retries. Reads, email sends, cancels, and domain verification retry network errors and HTTP 408, 429, 500, 502, 503, and 504, honoring `Retry-After`. When the wait would outlast the timeout, the SDK returns that API error at once. Reschedules, contact and property mutations, and domain creation and deletion are not automatically retried. Custom fetch implementations must honor `AbortSignal` and standard Fetch redirect behavior.
+The timeout covers the entire request, including retries. Reads, email and WhatsApp sends, cancels, and domain verification retry network errors and HTTP 408, 429, 500, 502, 503, and 504, honoring `Retry-After`. When the wait would outlast the timeout, the SDK returns that API error at once. Reschedules, contact and property mutations, and domain creation and deletion are not automatically retried. Custom fetch implementations must honor `AbortSignal` and standard Fetch redirect behavior.
 
 ## Errors
 
 All methods return `{ data, error, response }`. On success, `error` is null. On failure, `data` is null and `error` is a `NexiomError` with `kind`, `message`, `status`, `code`, `requestId`, and `details`.
 
-Error kinds are `api`, `network`, `timeout`, `aborted`, and `protocol`. Invalid SDK configuration or locally validated arguments throw `NexiomValidationError`. Response metadata includes HTTP status, headers, request ID, and the email idempotency key.
+Error kinds are `api`, `network`, `timeout`, `aborted`, and `protocol`. Invalid SDK configuration or locally validated arguments throw `NexiomValidationError`. Response metadata includes HTTP status, headers, request ID, and the send's idempotency key.
 
 ## Examples
 
@@ -282,6 +359,8 @@ Error kinds are `api`, `network`, `timeout`, `aborted`, and `protocol`. Invalid 
 - [Create a contact property](./examples/contact-properties.mjs)
 - [Add a sending domain](./examples/domains.mjs)
 - [List published templates](./examples/templates.mjs)
+- [Send a WhatsApp message](./examples/whatsapp.mjs)
+- [Verify webhooks with Express](./examples/webhooks.mjs)
 
 ## Development
 
