@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 — Unreleased
+
+- Add `webhooks.constructEventAsync(payload, headers, secret, { tolerance? })`. It verifies a webhook request's HMAC-SHA256 signature with the runtime's Web Crypto API and its timestamp (300 seconds by default), and resolves to a typed `WebhookEvent`, narrowed by `event.type`. Failures reject with `NexiomWebhookVerificationError` and a `reason`.
+- Add `messaging.send(params, { idempotencyKey? })` and `messaging.get(messageId)`, one interface for every messaging channel. `channel` selects the fields: `{ channel: "whatsapp", from, to, template: { id, variables? } }` sends an approved WhatsApp template from a connected number, named by its phone number. Sends always carry an idempotency key and retry with it; reads retry.
+- Export the message and webhook event types.
+
 ## 0.3.0 — 2026-10-10
 
 - Add `templates.list(params?)`, `templates.get(templateId)`, `templates.variables(templateId)`, and `templates.versions(templateId, params?)`.

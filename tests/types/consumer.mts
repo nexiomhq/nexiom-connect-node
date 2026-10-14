@@ -11,6 +11,10 @@ import {
   type Template,
   type TemplateVariable,
   type TemplateVersion,
+  type WebhookEvent,
+  type Message,
+  type MessageDetails,
+  NexiomWebhookVerificationError,
 } from "@nexiom/connect";
 const sdk = new NexiomConnect({ apiKey: "nc_test" });
 const result: NexiomResult<SendEmailResponse> = await sdk.emails.send({
@@ -131,3 +135,71 @@ sdk.emails.suppressions.create;
 // @ts-expect-error templates are read-only
 sdk.templates.create;
 void missingContent;
+const sent: NexiomResult<Message> = await sdk.messaging.send(
+  {
+    channel: "whatsapp",
+    from: "+213555000111",
+    to: "+213555123456",
+    template: { id: "wat_1", variables: { body: { "1": "Ada" } } },
+  },
+  { idempotencyKey: "order-1" },
+);
+if (sent.data) {
+  const channel: "whatsapp" = sent.data.channel;
+  const status: "sending" | "accepted" | "sent" | "delivered" | "read" | "failed" | "uncertain" =
+    sent.data.status;
+  const read: NexiomResult<MessageDetails> = await sdk.messaging.get(sent.data.id);
+  const segments = read.data?.content?.body ?? [];
+  void channel;
+  void status;
+  void segments;
+}
+// @ts-expect-error channels are typed; SMS is not available yet
+sdk.messaging.send({ channel: "sms", from: "+1", to: "+2", template: { id: "t" } });
+// @ts-expect-error the sender is the phone number in `from`
+sdk.messaging.send({ channel: "whatsapp", sender: "+1", to: "+2", template: { id: "t" } });
+// @ts-expect-error variable values are strings
+sdk.messaging.send({ channel: "whatsapp", from: "+1", to: "+2", template: { id: "t", variables: { body: { "1": 2 } } } });
+// @ts-expect-error messages are sent through messaging, not a channel resource
+sdk.whatsapp;
+const event: WebhookEvent = await sdk.webhooks.constructEventAsync("{}", new Headers(), "whsec_test", {
+  tolerance: 600,
+});
+switch (event.type) {
+  case "email.scheduled": {
+    const at: string = event.data.scheduled_at;
+    void at;
+    break;
+  }
+  case "contact.unsubscribed": {
+    const email: string | null = event.data.email;
+    void email;
+    break;
+  }
+  case "whatsapp.message.failed": {
+    const code: string = event.data.failure_code;
+    void code;
+    break;
+  }
+  case "whatsapp.message.read": {
+    // @ts-expect-error only failed WhatsApp events carry a failure code
+    void event.data.failure_code;
+    break;
+  }
+}
+await sdk.webhooks.constructEventAsync(new TextEncoder().encode("{}"), { "x-nexiom-signature": ["a"] }, "whsec_test");
+try {
+  await sdk.webhooks.constructEventAsync("{}", {}, "whsec_test");
+} catch (error) {
+  if (error instanceof NexiomWebhookVerificationError) {
+    const reason:
+      | "missing_headers"
+      | "invalid_timestamp"
+      | "timestamp_out_of_tolerance"
+      | "invalid_signature"
+      | "invalid_payload" = error.reason;
+    void reason;
+  }
+}
+// @ts-expect-error verification is asynchronous; there is no synchronous constructEvent
+sdk.webhooks.constructEvent;

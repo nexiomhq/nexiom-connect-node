@@ -4,12 +4,16 @@ import { Emails } from "./services/emails/emails.js";
 import { Contacts } from "./services/contacts/contacts.js";
 import { Templates } from "./services/templates/templates.js";
 import { Domains } from "./services/domains/domains.js";
+import { Messaging } from "./services/messaging/messaging.js";
+import { Webhooks } from "./services/webhooks/webhooks.js";
 
 export class NexiomConnect {
   readonly emails: Emails;
   readonly contacts: Contacts;
   readonly templates: Templates;
   readonly domains: Domains;
+  readonly messaging: Messaging;
+  readonly webhooks: Webhooks;
 
   constructor(options: NexiomConnectOptions) {
     const client = new Client(options);
@@ -17,18 +21,25 @@ export class NexiomConnect {
     this.contacts = new Contacts(client);
     this.templates = new Templates(client);
     this.domains = new Domains(client);
+    this.messaging = new Messaging(client);
+    this.webhooks = new Webhooks();
   }
 }
 
-export { NexiomError, NexiomValidationError } from "./core/errors.js";
+export {
+  NexiomError,
+  NexiomValidationError,
+  NexiomWebhookVerificationError,
+} from "./core/errors.js";
 
-export type { ErrorKind } from "./core/errors.js";
+export type { ErrorKind, WebhookVerificationReason } from "./core/errors.js";
 
 export type {
   NexiomConnectOptions,
   NexiomResult,
   RequestOptions,
   SendEmailOptions,
+  SendMessageOptions,
   ResponseMetadata,
   DeleteResponse,
 } from "./core/types.js";
@@ -99,3 +110,36 @@ export type {
   ListDomainsParams,
   ListDomainsResponse,
 } from "./services/domains/types.js";
+
+export type {
+  MessageChannel,
+  SendMessageParams,
+  SendWhatsAppMessageParams,
+  WhatsAppTemplateParams,
+  Message,
+  MessageDetails,
+  WhatsAppMessage,
+  WhatsAppMessageDetails,
+  WhatsAppMessageContent,
+  WhatsAppContentSegment,
+  WhatsAppMessageStatus,
+  WhatsAppTemplateCategory,
+  WhatsAppTemplateVariables,
+} from "./services/messaging/types.js";
+
+export type {
+  WebhookEvent,
+  WebhookEventEnvelope,
+  WebhookEventType,
+  EmailEventType,
+  ContactEventType,
+  WhatsAppEventType,
+  EmailEventData,
+  EmailScheduledEventData,
+  ContactEventData,
+  WhatsAppMessageEventData,
+  WhatsAppMessageFailedEventData,
+  WebhookPayload,
+  WebhookHeaders,
+  ConstructEventOptions,
+} from "./services/webhooks/types.js";
